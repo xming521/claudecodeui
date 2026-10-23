@@ -1,10 +1,22 @@
 // Service Worker for CloudCLI PWA
 // Cache only manifest (needed for PWA install). HTML and JS are never pre-cached
 // so a rebuild + refresh always picks up the latest assets.
-const CACHE_NAME = 'claude-ui-v2';
+const CACHE_NAME = 'claude-ui-v3';
 const urlsToCache = [
   '/manifest.json'
 ];
+
+function isCacheableAsset(request, response) {
+  if (response.status !== 200 || response.redirected) return false;
+
+  const pathname = new URL(request.url).pathname;
+  const contentType = (response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase();
+  if (pathname.endsWith('.js')) {
+    return contentType === 'text/javascript' || contentType === 'application/javascript';
+  }
+  if (pathname.endsWith('.css')) return contentType === 'text/css';
+  return contentType !== 'text/html';
+}
 
 // Install event
 self.addEventListener('install', event => {
@@ -17,10 +29,12 @@ self.addEventListener('install', event => {
 
 // Fetch event — network-first for everything except hashed assets
 self.addEventListener('fetch', event => {
-  const url = event.request.url;
+  const url = new URL(event.request.url);
+
+  if (event.request.method !== 'GET' || url.origin !== self.location.origin) return;
 
   // Never intercept API requests or WebSocket upgrades
-  if (url.includes('/api/') || url.includes('/ws')) {
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/ws')) {
     return;
   }
 
@@ -37,15 +51,20 @@ self.addEventListener('fetch', event => {
   }
 
   // Hashed assets (JS/CSS in /assets/) — cache-first since filenames change per build
-  if (url.includes('/assets/')) {
+  if (url.pathname.startsWith('/assets/')) {
     event.respondWith(
-      caches.match(event.request).then(cached => {
-        if (cached) return cached;
-        return fetch(event.request).then(response => {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
-          return response;
-        });
+      caches.open(CACHE_NAME).then(async cache => {
+        const cached = await cache.match(event.request);
+        if (cached && isCacheableAsset(event.request, cached)) return cached;
+        if (cached) await cache.delete(event.request);
+
+        const response = await fetch(event.request, { cache: 'no-store' });
+        if (isCacheableAsset(event.request, response)) {
+          event.waitUntil(cache.put(event.request, response.clone()).catch(error => {
+            console.warn('Unable to cache asset:', error);
+          }));
+        }
+        return response;
       })
     );
     return;
@@ -60,15 +79,15 @@ self.addEventListener('fetch', event => {
 // Activate event — purge old caches
 self.addEventListener('activate', event => {
   event.waitUntil(
-    caches.keys().then(cacheNames =>
-      Promise.all(
+    caches.keys().then(async cacheNames => {
+      await Promise.all(
         cacheNames
           .filter(name => name !== CACHE_NAME)
           .map(name => caches.delete(name))
-      )
-    )
+      );
+      await self.clients.claim();
+    })
   );
-  self.clients.claim();
 });
 
 // Push notification event
