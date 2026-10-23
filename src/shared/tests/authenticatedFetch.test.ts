@@ -52,7 +52,7 @@ const respondWith = (headers: Record<string, string> = {}, status = 200) => {
   return fetchMock;
 };
 
-const sentHeaders = () => (lastInit?.headers ?? {}) as Record<string, string>;
+const sentHeaders = () => Object.fromEntries(new Headers(lastInit?.headers).entries());
 
 beforeEach(() => {
   localStorage.clear();
@@ -71,7 +71,7 @@ test('a live token is sent as a bearer credential', async () => {
 
   await (await loadFetch(false))('/api/projects');
 
-  assert.equal(sentHeaders().Authorization, `Bearer ${token}`);
+  assert.equal(sentHeaders().authorization, `Bearer ${token}`);
 });
 
 test('platform builds send no bearer token, because the session is a cookie', async () => {
@@ -81,7 +81,7 @@ test('platform builds send no bearer token, because the session is a cookie', as
 
   await (await loadFetch(true))('/api/projects');
 
-  assert.equal('Authorization' in sentHeaders(), false);
+  assert.equal('authorization' in sentHeaders(), false);
 });
 
 test('an expired token is never put on the wire', async () => {
@@ -98,7 +98,7 @@ test('an expired token is never put on the wire', async () => {
   await (await loadFetch(false))('/api/projects');
 
   window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, onExpired);
-  assert.equal('Authorization' in sentHeaders(), false);
+  assert.equal('authorization' in sentHeaders(), false);
   assert.equal(localStorage.getItem('auth-token'), null);
   assert.equal(expiries, 1);
 });
@@ -108,7 +108,7 @@ test('no token means no Authorization header at all', async () => {
 
   await (await loadFetch(false))('/api/projects');
 
-  assert.equal('Authorization' in sentHeaders(), false);
+  assert.equal('authorization' in sentHeaders(), false);
 });
 
 test('a JSON body is labelled as JSON', async () => {
@@ -116,7 +116,7 @@ test('a JSON body is labelled as JSON', async () => {
 
   await (await loadFetch(false))('/api/projects', { method: 'POST', body: '{"a":1}' });
 
-  assert.equal(sentHeaders()['Content-Type'], 'application/json');
+  assert.equal(sentHeaders()['content-type'], 'application/json');
 });
 
 test('a FormData body is left for the browser to label', async () => {
@@ -126,7 +126,7 @@ test('a FormData body is left for the browser to label', async () => {
 
   await (await loadFetch(false))('/api/upload', { method: 'POST', body: new FormData() });
 
-  assert.equal('Content-Type' in sentHeaders(), false);
+  assert.equal('content-type' in sentHeaders(), false);
 });
 
 test('a caller header wins over the default', async () => {
@@ -138,12 +138,13 @@ test('a caller header wins over the default', async () => {
     headers: { 'Content-Type': 'text/plain' },
   });
 
-  assert.equal(sentHeaders()['Content-Type'], 'text/plain');
+  assert.equal(sentHeaders()['content-type'], 'text/plain');
 });
 
 test('a refreshed token on the response replaces the stored one', async () => {
-  localStorage.setItem('auth-token', liveToken());
-  const rotated = liveToken().replace('signature', 'rotated');
+  const now = Math.floor(Date.now() / 1000);
+  localStorage.setItem('auth-token', makeToken({ iat: now - 60, exp: now + 540 }));
+  const rotated = liveToken();
   let announced: string | null = null;
   const onRefresh = (event: Event) => {
     announced = (event as CustomEvent<string>).detail;
@@ -165,7 +166,7 @@ test('an auth error on the response ends the session', async () => {
     expiries += 1;
   };
   window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, onExpired);
-  respondWith({ 'X-Auth-Error': 'invalid' }, 401);
+  respondWith({ 'X-Auth-Error': 'invalid-token' }, 401);
 
   await (await loadFetch(false))('/api/projects');
 
@@ -223,6 +224,84 @@ test('an ordinary response leaves the stored token alone', async () => {
   respondWith();
 
   await (await loadFetch(false))('/api/projects');
+
+  assert.equal(localStorage.getItem('auth-token'), token);
+});
+
+test('API requests bypass existing cached responses even if a caller requests caching', async () => {
+  respondWith();
+  await (await loadFetch(false))('/api/projects', { cache: 'force-cache' });
+  assert.equal(lastInit?.cache, 'no-store');
+});
+
+test('a late unauthenticated 401 cannot clear a newly established login', async () => {
+  const token = liveToken();
+  let expiries = 0;
+  const onExpired = () => { expiries += 1; };
+  window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, onExpired);
+  vi.stubGlobal('fetch', vi.fn(async () => {
+    localStorage.setItem('auth-token', token);
+    return new Response('{}', { status: 401, headers: { 'X-Auth-Error': 'invalid-token' } });
+  }));
+
+  await (await loadFetch(false))('/api/plugins');
+
+  window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, onExpired);
+  assert.equal(expiries, 0);
+  assert.equal(localStorage.getItem('auth-token'), token);
+});
+
+test('a late 401 for an earlier token cannot clear a newer login', async () => {
+  const now = Math.floor(Date.now() / 1000);
+  localStorage.setItem('auth-token', makeToken({ iat: now - 60, exp: now + 540 }));
+  const token = liveToken();
+  vi.stubGlobal('fetch', vi.fn(async () => {
+    localStorage.setItem('auth-token', token);
+    return new Response('{}', { status: 401, headers: { 'X-Auth-Error': 'session-expired' } });
+  }));
+
+  await (await loadFetch(false))('/api/projects');
+
+  assert.equal(localStorage.getItem('auth-token'), token);
+});
+
+test('an overridden bearer credential does not clear the stored session', async () => {
+  const token = liveToken();
+  localStorage.setItem('auth-token', token);
+  respondWith({ 'X-Auth-Error': 'invalid-token' }, 401);
+
+  await (await loadFetch(false))('/api/projects', { headers: { authorization: 'Bearer other' } });
+
+  assert.equal(sentHeaders().authorization, 'Bearer other');
+  assert.equal(localStorage.getItem('auth-token'), token);
+});
+
+test('a cached expired refresh header does not replace a live login', async () => {
+  const token = liveToken();
+  localStorage.setItem('auth-token', token);
+  respondWith({ 'X-Refreshed-Token': expiredToken() });
+
+  await (await loadFetch(false))('/api/projects');
+
+  assert.equal(localStorage.getItem('auth-token'), token);
+});
+
+test('a transient server failure does not end the session', async () => {
+  const token = liveToken();
+  localStorage.setItem('auth-token', token);
+  respondWith({}, 503);
+
+  await (await loadFetch(false))('/api/auth/user');
+
+  assert.equal(localStorage.getItem('auth-token'), token);
+});
+
+test('platform authentication errors do not remove an unrelated stored bearer', async () => {
+  const token = liveToken();
+  localStorage.setItem('auth-token', token);
+  respondWith({ 'X-Auth-Error': 'invalid-token' }, 401);
+
+  await (await loadFetch(true))('/api/projects');
 
   assert.equal(localStorage.getItem('auth-token'), token);
 });

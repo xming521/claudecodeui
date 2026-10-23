@@ -6,6 +6,13 @@ import { PluginsProvider, usePlugins } from '@/modules/plugins/context/PluginsCo
 import PluginSettingsTab from '@/modules/plugins/PluginSettingsTab';
 import type { Plugin } from '@/shared/types';
 
+// PluginsProvider waits for a signed-in user before listing plugins.
+// The value must be stable: a new `user` object per render re-runs that fetch.
+vi.mock('@/modules/auth', () => {
+  const auth = { user: { id: 1 }, token: 'token', isLoading: false };
+  return { useAuth: () => auth };
+});
+
 type StubbedReply = { status: number; body: unknown };
 
 // Every plugin route hands its failures to the global error middleware, which

@@ -5,6 +5,8 @@ import { test } from 'vitest';
 import {
   AUTH_SESSION_EXPIRED_EVENT,
   AUTH_TOKEN_REFRESHED_EVENT,
+  acceptRefreshedToken,
+  expireAuthSession,
   getAuthTokenRefreshDelay,
   getStoredAuthToken,
   isAuthTokenExpired,
@@ -131,4 +133,55 @@ test('getAuthTokenRefreshDelay: an unreadable token schedules nothing', () => {
   // null means "no refresh timer", which is distinct from 0 ("refresh now").
   assert.equal(getAuthTokenRefreshDelay('not-a-jwt'), null);
   assert.equal(getAuthTokenRefreshDelay(null), null);
+});
+
+test('acceptRefreshedToken: accepts a newer valid token for the current request', () => {
+  const now = Math.floor(Date.now() / 1000);
+  const current = makeToken({ iat: now - 60, exp: now + 600 });
+  const next = makeToken({ iat: now, exp: now + 660 });
+  localStorage.setItem('auth-token', current);
+
+  assert.equal(acceptRefreshedToken(next, current), true);
+  assert.equal(localStorage.getItem('auth-token'), next);
+});
+
+test('acceptRefreshedToken: rejects expired, older, malformed and conflicting equal-iat responses', () => {
+  const now = Math.floor(Date.now() / 1000);
+  const current = makeToken({ iat: now, exp: now + 600 });
+  localStorage.setItem('auth-token', current);
+  const rejected = [
+    makeToken({ iat: now - 1200, exp: now - 1 }),
+    makeToken({ iat: now - 60, exp: now + 540 }),
+    makeToken({ iat: now, exp: now + 660 }),
+    makeToken({ iat: now + 1 }),
+    'not-a-token',
+  ];
+  for (const token of rejected) {
+    assert.equal(acceptRefreshedToken(token, current), false);
+    assert.equal(localStorage.getItem('auth-token'), current);
+  }
+});
+
+test('acceptRefreshedToken: a late refresh cannot overwrite another login or undo logout', () => {
+  const now = Math.floor(Date.now() / 1000);
+  const requestToken = makeToken({ iat: now - 60, exp: now + 600 });
+  const current = makeToken({ iat: now, exp: now + 660 });
+  const late = makeToken({ iat: now + 1, exp: now + 661 });
+  localStorage.setItem('auth-token', current);
+  assert.equal(acceptRefreshedToken(late, requestToken), false);
+  assert.equal(localStorage.getItem('auth-token'), current);
+
+  localStorage.removeItem('auth-token');
+  assert.equal(acceptRefreshedToken(late, requestToken), false);
+  assert.equal(localStorage.getItem('auth-token'), null);
+});
+
+test('expireAuthSession: an expired WebSocket token cannot remove a newer login', () => {
+  const now = Math.floor(Date.now() / 1000);
+  const current = makeToken({ iat: now, exp: now + 600 });
+  localStorage.setItem('auth-token', current);
+  assert.equal(expireAuthSession(makeToken({ iat: now - 7200, exp: now - 3600 })), false);
+  assert.equal(localStorage.getItem('auth-token'), current);
+  assert.equal(expireAuthSession(current), true);
+  assert.equal(localStorage.getItem('auth-token'), null);
 });

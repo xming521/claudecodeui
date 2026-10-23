@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 
 import { IS_PLATFORM } from '@/shared/utils';
 import { api, readApiErrorMessage } from '@/shared/api';
-import { AUTH_SESSION_EXPIRED_EVENT, AUTH_TOKEN_REFRESHED_EVENT, getAuthTokenRefreshDelay, isValidRefreshedToken, storeAuthToken } from '@/shared/authToken';
+import { AUTH_SESSION_EXPIRED_EVENT, AUTH_TOKEN_REFRESHED_EVENT, acceptRefreshedToken, getAuthTokenRefreshDelay, isValidRefreshedToken, storeAuthToken } from '@/shared/authToken';
 import { hydrateChatDrafts, resetChatDrafts } from '@/shared/chatDrafts';
 import { hydrateUserPreferences, resetUserPreferences } from '@/shared/userSettings';
 /** The signed-in account held by AuthContext - a required `username` plus an optional id and any additional fields the auth API returns - and should be read through `useAuth()` rather than re-derived from raw auth responses. */
@@ -147,16 +147,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
 
     try {
+      const requestToken = readStoredToken();
       const response = await api.auth.refresh();
       if (!response.ok) {
         return;
       }
 
       const payload = await parseJsonSafely<AuthSessionPayload>(response);
-      if (isValidRefreshedToken(payload?.token)) {
-        setToken(payload.token);
-        persistToken(payload.token);
-      }
+      acceptRefreshedToken(payload?.token, requestToken);
     } catch (caughtError) {
       // A transient network failure must not sign the user out. Focus/visibility
       // and the next scheduled refresh will retry while the token remains valid.
@@ -201,6 +199,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       const statusResponse = await api.auth.status();
       const statusPayload = await parseJsonSafely<AuthStatusPayload>(statusResponse);
+      if (!statusResponse.ok || !statusPayload) {
+        throw new Error(`Auth status check failed (${statusResponse.status})`);
+      }
 
       if (statusPayload?.needsSetup) {
         setNeedsSetup(true);
@@ -219,14 +220,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       const userResponse = await api.auth.user();
       if (!userResponse.ok) {
-        clearSession();
-        return;
+        const authError = userResponse.headers.get('X-Auth-Error');
+        if (userResponse.status === 401 &&
+            (authError === 'invalid-token' || authError === 'session-expired')) {
+          return;
+        }
+        throw new Error(`Auth user check failed (${userResponse.status})`);
       }
 
       const userPayload = await parseJsonSafely<AuthUserPayload>(userResponse);
       if (!userPayload?.user) {
-        clearSession();
-        return;
+        throw new Error('Auth user check returned no user');
       }
 
       setUser(userPayload.user);
@@ -237,7 +241,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [checkOnboardingStatus, clearSession]);
+  }, [checkOnboardingStatus]);
 
   useEffect(() => {
     if (IS_PLATFORM) {

@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from 'react';
 
 import { api, readApiErrorMessage } from '@/shared/api';
+import { useAuth } from '@/modules/auth';
 import type { Plugin } from '@/shared/types';
 
 
@@ -28,6 +29,7 @@ export function usePlugins() {
 
 /** Mounted by the app root so the plugins and project-workspace modules can read and mutate installed plugins through usePlugins. */
 export function PluginsProvider({ children }: { children: ReactNode }) {
+  const { user, isLoading } = useAuth();
   const [plugins, setPlugins] = useState<Plugin[]>([]);
   const [loading, setLoading] = useState(true);
   const [pluginsError, setPluginsError] = useState<string | null>(null);
@@ -59,8 +61,11 @@ export function PluginsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (isLoading || !user) {
+      return;
+    }
     void refreshPlugins();
-  }, [refreshPlugins]);
+  }, [isLoading, user, refreshPlugins]);
 
   const installPlugin = useCallback(async (url: string) => {
     try {

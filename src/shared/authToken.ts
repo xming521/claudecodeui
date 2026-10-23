@@ -71,17 +71,21 @@ export const getAuthTokenRefreshDelay = (token: unknown): number | null => {
   return Math.max(0, refreshAt - Date.now());
 };
 
-export const expireAuthSession = (): void => {
+export const expireAuthSession = (rejectedToken: string): boolean => {
+  if (localStorage.getItem('auth-token') !== rejectedToken) {
+    return false;
+  }
   localStorage.removeItem('auth-token');
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new Event(AUTH_SESSION_EXPIRED_EVENT));
   }
+  return true;
 };
 
 export const getStoredAuthToken = (): string | null => {
   const token = localStorage.getItem('auth-token');
   if (token && isAuthTokenExpired(token)) {
-    expireAuthSession();
+    expireAuthSession(token);
     return null;
   }
   return token;
@@ -105,4 +109,25 @@ export const storeAuthToken = (token: unknown): boolean => {
     window.dispatchEvent(new CustomEvent(AUTH_TOKEN_REFRESHED_EVENT, { detail: token }));
   }
   return true;
+};
+
+export const acceptRefreshedToken = (token: unknown, requestToken: string | null): boolean => {
+  const claims = readTokenClaims(token);
+  if (!claims || claims.expiresAt <= Date.now()) {
+    return false;
+  }
+
+  const currentToken = localStorage.getItem('auth-token');
+  if (currentToken === token) {
+    return true;
+  }
+  // A response from an earlier login or from before logout cannot update this session.
+  if (!requestToken || currentToken !== requestToken) {
+    return false;
+  }
+  const currentClaims = readTokenClaims(currentToken);
+  if (currentClaims && claims.issuedAt <= currentClaims.issuedAt) {
+    return false;
+  }
+  return storeAuthToken(token);
 };

@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 
 import { api } from '@/shared/api';
+import { useAuth } from '@/modules/auth';
 import {
   readUserPreference,
   subscribeToUserPreferences,
@@ -54,6 +55,7 @@ export const useTasksSettings = () => {
 
 /** Mounted by App.tsx; supplies the tasks-enabled preference and TaskMaster installation status that the chat, sidebar, settings and project-workspace modules read through useTasksSettings. */
 export const TasksSettingsProvider = ({ children }: { children: ReactNode }) => {
+  const { user, isLoading } = useAuth();
   const [tasksEnabled, setTasksEnabled] = useState<boolean>(
     () => readUserPreference('tasksEnabled', TASKS_ENABLED_DEFAULT),
   );
@@ -82,6 +84,9 @@ export const TasksSettingsProvider = ({ children }: { children: ReactNode }) => 
 
   // Check TaskMaster installation status asynchronously on component mount
   useEffect(() => {
+    if (isLoading || !user) {
+      return;
+    }
     const checkInstallation = async () => {
       try {
         const response = await api.taskmaster.installationStatus();
@@ -113,8 +118,9 @@ export const TasksSettingsProvider = ({ children }: { children: ReactNode }) => 
     };
 
     // Run check asynchronously without blocking initial render
-    setTimeout(checkInstallation, 0);
-  }, []);
+    const timer = setTimeout(checkInstallation, 0);
+    return () => clearTimeout(timer);
+  }, [isLoading, user]);
 
   const toggleTasksEnabled = useCallback(() => {
     chooseTasksEnabled(prev => !prev);
