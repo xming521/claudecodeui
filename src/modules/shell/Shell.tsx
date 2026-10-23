@@ -264,15 +264,14 @@ export default function Shell({
 
   if (minimal) {
     return (
-      <>
+      <div className="flex h-full min-h-0 w-full flex-col bg-card">
         <ShellMinimalView terminalContainerRef={terminalContainerRef} />
         <TerminalShortcutsPanel
           wsRef={wsRef}
           terminalRef={terminalRef}
           isConnected={isConnected}
-          bottomOffset="bottom-0"
         />
-      </>
+      </div>
     );
   }
 
@@ -296,7 +295,7 @@ export default function Shell({
   const overlayDescription = overlayMode === 'connecting' ? connectingDescription : readyDescription;
 
   return (
-    <div className="flex h-full w-full flex-col bg-card">
+    <div className="flex h-full min-h-0 w-full flex-col bg-card">
       <ShellHeader
         isConnected={isConnected}
         isInitialized={isInitialized}
@@ -324,7 +323,7 @@ export default function Shell({
         )}
       />
 
-      <div className="relative flex-1 overflow-hidden p-2">
+      <div className="relative min-h-0 flex-1 overflow-hidden p-2">
         <div
           ref={terminalContainerRef}
           className="h-full w-full focus:outline-none"

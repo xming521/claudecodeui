@@ -9,7 +9,7 @@ export default function ShellMinimalView({
   terminalContainerRef,
 }: ShellMinimalViewProps) {
   return (
-    <div className="relative h-full w-full bg-card">
+    <div className="relative min-h-0 w-full flex-1 bg-card">
       <div
         ref={terminalContainerRef}
         className="h-full w-full focus:outline-none"
