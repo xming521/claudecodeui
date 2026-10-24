@@ -21,6 +21,7 @@ import {
   createCompleteMessage,
   createNormalizedMessage,
 } from '@/shared/index.js';
+import { markCodexThreadInteractive } from '@/modules/providers/list/codex/codex-thread-source.js';
 import { notifyRunFailed, notifyRunStopped } from '@/modules/notifications/index.js';
 import type { AnyRecord, ProviderRuntimeContext, ProviderRuntimeWriter } from '@/shared/index.js';
 
@@ -437,6 +438,14 @@ async function queryCodex(
     const runSession = activeCodexSessions.get(sessionKey() || '');
     const runAborted = runSession?.status === 'aborted' || abortController.signal.aborted;
     if (!runAborted) {
+      // The stream ends only after `codex exec` exits, so its rollout has no
+      // writer now. Done before `complete` so the next turn cannot start one.
+      const threadId = capturedSessionId || thread.id;
+      if (threadId) {
+        await markCodexThreadInteractive(threadId).catch((error) => {
+          console.warn(`[Codex] Could not mark thread ${threadId} as interactive:`, error);
+        });
+      }
       sendMessage(ws, createCompleteMessage({
         provider: 'codex',
         sessionId: capturedSessionId || sessionId || null,
