@@ -97,7 +97,14 @@
     "createProjectDesktop": "點擊側邊欄中的資料夾圖示以建立新專案",
     "newSession": "新工作階段",
     "untitledSession": "未命名工作階段",
-    "projectFiles": "專案檔案"
+    "projectFiles": "專案檔案",
+    "newChat": "新對話",
+    "allProjects": "所有專案",
+    "recentConversations": "最近對話",
+    "loadRecentFailed": "無法載入最近對話",
+    "showMore": "顯示更多",
+    "sessionRunning": "執行中",
+    "sessionNeedsAttention": "需要處理"
   },
   "fileTree": {
     "loading": "正在載入檔案...",

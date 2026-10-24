@@ -99,7 +99,14 @@
     "untitledSession": "Untitled Session",
     "projectFiles": "Project Files",
     "renameSessionHint": "{{title}} (double-click to rename)",
-    "renameSessionLabel": "Session title"
+    "renameSessionLabel": "Session title",
+    "newChat": "New chat",
+    "allProjects": "All projects",
+    "recentConversations": "Recent conversations",
+    "loadRecentFailed": "Could not load recent conversations",
+    "showMore": "Show more",
+    "sessionRunning": "Running",
+    "sessionNeedsAttention": "Needs attention"
   },
   "fileTree": {
     "loading": "Loading files...",
