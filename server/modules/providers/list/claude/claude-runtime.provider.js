@@ -81,6 +81,11 @@ const BG_WAIT_CEILING_MS = 30 * 60 * 1000;
 
 const TOOLS_REQUIRING_INTERACTION = new Set(['AskUserQuestion', 'ExitPlanMode']);
 
+// Appended to the claude_code preset in place of the terminal CLI's `! <command>` tip,
+// which SDK sessions leave out because the web composer has no `!` prefix. The Shell tab
+// runs `claude --resume` on the conversation, where `!` works.
+const CLAUDE_SYSTEM_PROMPT_APPEND = "If you need the user to run a shell command themselves (e.g., an interactive login like `gcloud auth login`), suggest they open the Shell tab (终端 in the Chinese UI), which runs this conversation in Claude Code's terminal UI, and type `! <command>` there.";
+
 // Ultracode is a session-scoped setting rather than an SDK effort level: it pairs xhigh
 // effort with standing dynamic-workflow orchestration, and the CLI only honours it when
 // Workflows are enabled. The catalog offers it as an effort choice for the picker, so the
@@ -288,10 +293,19 @@ function mapCliOptionsToSDK(options = {}) {
     options.effortModels || CLAUDE_PREDEFINED_MODELS,
   ));
 
+  // Build the same system prompt the terminal CLI does. Any append switches the CLI's
+  // identity line from "You are a Claude agent, built on Anthropic's Claude Agent SDK"
+  // to Claude Code's own.
   sdkOptions.systemPrompt = {
     type: 'preset',
-    preset: 'claude_code'
+    preset: 'claude_code',
+    append: CLAUDE_SYSTEM_PROMPT_APPEND
   };
+
+  // The terminal runs in focus view, which adds a "Focus mode" section telling the model
+  // to put everything into its final message. SDK sessions read the view mode from flag
+  // settings only. Merged so the ultracode settings above survive.
+  sdkOptions.settings = { ...(sdkOptions.settings || {}), viewMode: 'focus' };
 
   sdkOptions.settingSources = ['project', 'user', 'local'];
 
