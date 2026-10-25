@@ -14,6 +14,10 @@ export type ProviderModelOption = {
   description?: string;
   recordId?: number;
   isCustom?: boolean;
+  /** Claude only: the model this alias currently runs, as the CLI names it (`Opus 5.5`). */
+  resolvedLabel?: string;
+  /** Claude only: the effort a turn runs at when none is chosen, from the user's settings. */
+  resolvedEffort?: string;
   effort?: {
     default?: string;
     values: {

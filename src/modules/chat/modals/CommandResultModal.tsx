@@ -26,6 +26,7 @@ import type {
   ProviderModelsDefinition,CommandModalPayload,CostCommandData,HelpCommandData,ModelCommandData,StatusCommandData
 } from '@/shared/types';
 import ModelLibraryPanel from '@/modules/chat/modals/ModelLibraryPanel';
+import { formatModelOptionLabel } from '@/modules/chat/utils/modelLabel';
 
 type CommandResultModalProps = {
   payload: CommandModalPayload | null;
@@ -274,7 +275,7 @@ function ModelsContent({
     }
 
     return availableOptions.filter((option) => {
-      const haystack = `${option.value} ${option.label || ''} ${option.description || ''}`.toLowerCase();
+      const haystack = `${option.value} ${option.resolvedLabel || ''} ${option.label || ''} ${option.description || ''}`.toLowerCase();
       return haystack.includes(normalized);
     });
   }, [availableOptions, query]);
@@ -369,7 +370,7 @@ function ModelsContent({
                   style={{ animationDelay: `${Math.min(index * 14, 180)}ms` }}
                 >
                   <span className="flex items-center justify-between gap-2">
-                    <span className="break-words text-sm font-semibold text-foreground">{option.label || option.value}</span>
+                    <span className="break-words text-sm font-semibold text-foreground">{formatModelOptionLabel(option)}</span>
                     <span className="flex shrink-0 items-center gap-2">
                       {option.isCustom && <Badge className="rounded-full px-2 py-0 text-[9px]">Custom</Badge>}
                       {isCurrent ? (
@@ -379,7 +380,7 @@ function ModelsContent({
                       ) : null}
                     </span>
                   </span>
-                  {option.label !== option.value && (
+                  {formatModelOptionLabel(option) !== option.value && (
                     <span className="mt-1 break-all font-mono text-[11px] text-muted-foreground">{option.value}</span>
                   )}
                   {option.description && (

@@ -79,6 +79,10 @@ export type ProviderModelOption = {
   recordId?: number;
   /** True for user-created rows; false for immutable CloudCLI defaults. */
   isCustom?: boolean;
+  /** Claude only: the model this alias currently runs, as the CLI names it (`Opus 5.5`). */
+  resolvedLabel?: string;
+  /** Claude only: the effort a turn runs at when none is chosen, from the user's settings. */
+  resolvedEffort?: string;
   effort?: {
     default?: string;
     values: {

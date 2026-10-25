@@ -3,6 +3,7 @@ import { Check, ChevronDown, ChevronRight } from "lucide-react";
 
 import type { LLMProvider, ProviderModelOption } from "@/shared/types";
 import { Badge, CommandGroup, CommandItem, LLMProviderLogo } from "@/shared/ui";
+import { formatModelOptionLabel } from "@/modules/chat/utils/modelLabel";
 
 /**
  * One branch of the model picker.
@@ -125,22 +126,23 @@ export default function ModelGroupList({
 
             {!isCollapsed && group.models.map((model) => {
               const isSelected = provider === group.provider && currentModel === model.value;
+              const label = formatModelOptionLabel(model);
 
               return (
                 <CommandItem
                   key={`${group.key}-${model.value}`}
-                  value={`${group.name} ${model.label} ${model.description || ""}`}
+                  value={`${group.name} ${label} ${model.label} ${model.description || ""}`}
                   onSelect={() => onSelect(group.provider, model.value)}
                   className="ml-4 border-l border-border/40 pl-4"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex min-w-0 items-center gap-2">
-                      <span className="truncate">{model.label}</span>
+                      <span className="truncate">{label}</span>
                       {model.isCustom && (
                         <Badge className="h-4 shrink-0 rounded-full px-1.5 text-[8px]">Custom</Badge>
                       )}
                     </div>
-                    {model.label !== model.value && (
+                    {label !== model.value && (
                       <div className="truncate font-mono text-[10px] text-muted-foreground">
                         {model.value}
                       </div>

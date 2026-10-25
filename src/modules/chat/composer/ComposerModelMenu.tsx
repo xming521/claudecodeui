@@ -7,6 +7,11 @@ import type { ProviderModelOption } from '@/shared/types';
 import { DEFAULT_EFFORT_VALUE } from '@/shared/constants';
 import { useComposerMenuAnchor } from '@/modules/chat/hooks/useComposerMenuAnchor';
 import {
+  formatDefaultEffortLabel,
+  formatModelOptionHint,
+  formatModelOptionLabel,
+} from '@/modules/chat/utils/modelLabel';
+import {
   ComposerMenuHeading,
   ComposerMenuItem,
   ComposerMenuSeparator,
@@ -54,18 +59,25 @@ function ComposerModelMenu({
     }
   }, [isOpen]);
 
-  const defaultEffortLabel = t('composer.effortDefault', { defaultValue: 'Default' });
+  const selectedModelOption = useMemo(
+    () => modelOptions.find((option) => option.value === model) ?? null,
+    [model, modelOptions],
+  );
+  const modelLabel = selectedModelOption ? formatModelOptionLabel(selectedModelOption) : model;
+  // The level "default" runs at, when the server could find out (Claude only).
+  const defaultEffort = selectedModelOption?.resolvedEffort;
+
+  const defaultEffortLabel = formatDefaultEffortLabel(
+    t('composer.effortDefault', { defaultValue: 'Default' }),
+    defaultEffort,
+  );
   const resolvedEffortOptions = useMemo<EffortOption[]>(
     () => (effortOptions.length > 0 ? [{ value: DEFAULT_EFFORT_VALUE }, ...effortOptions] : []),
     [effortOptions],
   );
   const effortLabel = effort === DEFAULT_EFFORT_VALUE ? defaultEffortLabel : effort;
-
-  const selectedModelOption = useMemo(
-    () => modelOptions.find((option) => option.value === model) ?? null,
-    [model, modelOptions],
-  );
-  const modelLabel = selectedModelOption?.label || model;
+  // The trigger has room for the level only, so "default" shows as the level it means.
+  const triggerEffortLabel = effort === DEFAULT_EFFORT_VALUE ? defaultEffort : effort;
 
   const hasEffortSection = resolvedEffortOptions.length > 0;
   const hasModelSection = modelOptions.length > 0 || modelsLoading;
@@ -94,8 +106,8 @@ function ComposerModelMenu({
         title={ariaLabel}
       >
         <span className="truncate">{triggerLabel}</span>
-        {hasModelSection && hasEffortSection && effort !== DEFAULT_EFFORT_VALUE && (
-          <span className="hidden shrink-0 capitalize text-muted-foreground sm:inline">· {effortLabel}</span>
+        {hasModelSection && hasEffortSection && triggerEffortLabel && (
+          <span className="hidden shrink-0 capitalize text-muted-foreground sm:inline">· {triggerEffortLabel}</span>
         )}
       </button>
 
@@ -151,7 +163,8 @@ function ComposerModelMenu({
                   {modelOptions.map((option) => (
                     <ComposerMenuItem
                       key={option.value}
-                      label={option.label || option.value}
+                      label={formatModelOptionLabel(option)}
+                      description={formatModelOptionHint(option)}
                       isSelected={option.value === model}
                       onSelect={() => {
                         onSelectModel(option.value);

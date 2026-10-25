@@ -23,6 +23,7 @@ import {
   LLMProviderLogo,
 } from "@/shared/ui";
 import ModelGroupList, { type ModelGroup } from "@/modules/chat/composer/ModelGroupList";
+import { formatModelOptionLabel } from "@/modules/chat/utils/modelLabel";
 import ModelLibraryPanel from "@/modules/chat/modals/ModelLibraryPanel";
 import { writeSelectedProvider } from '@/shared/selectedProvider';
 
@@ -158,7 +159,7 @@ export default function ProviderSelectionEmptyState({
     const found = config.OPTIONS.find(
       (o: { value: string; label: string }) => o.value === currentModel,
     );
-    return found?.label || currentModel;
+    return found ? formatModelOptionLabel(found) : currentModel;
   }, [provider, currentModel, providerModelCatalog]);
 
   const handleModelSelect = useCallback(

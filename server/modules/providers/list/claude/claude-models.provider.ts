@@ -1,6 +1,12 @@
 import { readFile } from 'node:fs/promises';
 
 import { sessionsDb } from '@/modules/database/index.js';
+import {
+  readClaudeModelSetupFingerprint,
+  resolveClaudeModelWithCli,
+  type ClaudeModelResolver,
+  type ClaudeResolvedModel,
+} from '@/modules/providers/list/claude/claude-model-resolution.js';
 import type { IProviderModels } from '@/shared/interfaces.js';
 import type {
   ProviderCurrentActiveModel,
@@ -276,20 +282,153 @@ const readClaudeSessionModelFromJsonl = async (
   return null;
 };
 
+const MODEL_RESOLUTION_TTL_MS = 60 * 60 * 1000;
+const COLD_RESOLUTION_WAIT_MS = 8_000;
+const MODEL_RESOLUTION_CONCURRENCY = 3;
+
+/** Aliases that each name one model family. */
+const CLAUDE_FAMILY_ALIASES = ['fable', 'sonnet', 'opus', 'haiku'];
+/** Aliases that point at one of the families, chosen by the account and the user's settings. */
+const CLAUDE_POINTER_ALIASES = new Set(['default', 'best']);
+
+type ClaudeModelResolutions = Map<string, ClaudeResolvedModel>;
+
+/**
+ * Exported for tests. Labels each option with the model it resolves to. A
+ * pointer alias takes the effort levels of the family it lands on, so
+ * `default` offers xhigh when it means Opus and none when it means Haiku.
+ */
+export const applyClaudeModelResolutions = (
+  definition: ProviderModelsDefinition,
+  resolutions: ClaudeModelResolutions,
+): ProviderModelsDefinition => {
+  const familyByLabel = new Map<string, ProviderModelOption>();
+  for (const value of CLAUDE_FAMILY_ALIASES) {
+    const option = definition.OPTIONS.find((candidate) => candidate.value === value);
+    const label = resolutions.get(value)?.label;
+    if (option && label) {
+      familyByLabel.set(label, option);
+    }
+  }
+
+  return {
+    ...definition,
+    OPTIONS: definition.OPTIONS.map((option) => {
+      const resolved = resolutions.get(option.value);
+      if (!resolved) {
+        return option;
+      }
+
+      const family = CLAUDE_POINTER_ALIASES.has(option.value) ? familyByLabel.get(resolved.label) : undefined;
+      const { effort: catalogEffort, ...rest } = option;
+      const effort = family ? family.effort : catalogEffort;
+      return {
+        ...rest,
+        ...(effort ? { effort } : {}),
+        resolvedLabel: resolved.label,
+        ...(resolved.effort ? { resolvedEffort: resolved.effort } : {}),
+      };
+    }),
+  };
+};
+
+const waitAtMost = async (work: Promise<void>, ms: number): Promise<void> => {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, ms);
+    timer.unref?.();
+  });
+  try {
+    await Promise.race([work, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 export class ClaudeProviderModels implements IProviderModels {
+  private resolutions: { fingerprint: string; resolvedAt: number; byValue: ClaudeModelResolutions } | null = null;
+  private pendingResolution: Promise<void> | null = null;
+
+  /**
+   * The catalog's aliases (`default`, `best`, `opus`, ...) only make sense once
+   * they are tied to a model, so each one is resolved through the CLI and the
+   * answer cached until the settings or the CLI change. Lookups start when the
+   * server does. Tests run without a resolver unless they pass one.
+   */
+  constructor(
+    private readonly resolveModel: ClaudeModelResolver | null =
+      process.env.NODE_ENV === 'test' ? null : resolveClaudeModelWithCli,
+    private readonly readSetupFingerprint: () => Promise<string> = readClaudeModelSetupFingerprint,
+  ) {
+    if (this.resolveModel) {
+      void this.getSupportedModels().catch(() => undefined);
+    }
+  }
+
   async getSupportedModels(): Promise<ProviderModelsDefinition> {
-    // claude creates a new jsonl file as a separate session for this request.
-    // As a result, it lists the workspace where this is invoked when it shouldn't.
-    //
-    // Disabled for now:
-    // const queryInstance = query({
-    //   prompt: 'Get supported models',
-    //   options: buildClaudeQueryOptions(),
-    // });
-    // const supportedModels = await queryInstance.supportedModels();
-    // queryInstance.close();
-    // return buildClaudeModelsDefinition(supportedModels);
-    return CLAUDE_PREDEFINED_MODELS;
+    if (!this.resolveModel) {
+      return CLAUDE_PREDEFINED_MODELS;
+    }
+
+    const fingerprint = await this.readSetupFingerprint();
+    const current = this.resolutions;
+    const isFresh = current !== null
+      && current.fingerprint === fingerprint
+      && Date.now() - current.resolvedAt < MODEL_RESOLUTION_TTL_MS;
+    if (!isFresh) {
+      const refresh = this.refreshResolutions(fingerprint);
+      // Stale labels are served while they refresh. Only the very first
+      // catalog after a restart waits, and only briefly: this also runs
+      // before every send.
+      if (current === null) {
+        await waitAtMost(refresh, COLD_RESOLUTION_WAIT_MS);
+      }
+    }
+
+    return this.resolutions
+      ? applyClaudeModelResolutions(CLAUDE_PREDEFINED_MODELS, this.resolutions.byValue)
+      : CLAUDE_PREDEFINED_MODELS;
+  }
+
+  private refreshResolutions(fingerprint: string): Promise<void> {
+    this.pendingResolution ??= this.resolveAll(fingerprint).finally(() => {
+      this.pendingResolution = null;
+    });
+    return this.pendingResolution;
+  }
+
+  private async resolveAll(fingerprint: string): Promise<void> {
+    const resolveModel = this.resolveModel;
+    if (!resolveModel) {
+      return;
+    }
+
+    const values = CLAUDE_PREDEFINED_MODELS.OPTIONS.map((option) => option.value);
+    const byValue: ClaudeModelResolutions = new Map();
+    let nextIndex = 0;
+    const worker = async () => {
+      while (nextIndex < values.length) {
+        const value = values[nextIndex];
+        nextIndex += 1;
+        try {
+          const resolved = await resolveModel(value);
+          if (resolved) {
+            byValue.set(value, resolved);
+          }
+        } catch {
+          // An alias that cannot be resolved keeps its catalog label.
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: MODEL_RESOLUTION_CONCURRENCY }, worker));
+
+    // A failed round is remembered too, so a broken CLI is retried after the
+    // TTL rather than on every request. It keeps any earlier answers.
+    this.resolutions = {
+      fingerprint,
+      resolvedAt: Date.now(),
+      byValue: byValue.size > 0 ? byValue : this.resolutions?.byValue ?? byValue,
+    };
   }
 
   async getCurrentActiveModel(sessionId?: string): Promise<ProviderCurrentActiveModel> {

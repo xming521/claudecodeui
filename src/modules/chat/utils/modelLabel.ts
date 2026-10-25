@@ -1,3 +1,5 @@
+import type { ProviderModelOption } from '@/shared/types';
+
 /**
  * Model families, in the spelling they are shown in. The provider reports a
  * full id (`claude-opus-5`, `claude-haiku-4-5-20251001`); the footer has room
@@ -34,3 +36,37 @@ export const formatAnsweringModelLabel = (model: string | undefined): string | n
 
   return normalized.endsWith('[1m]') ? `${family[1]} 1M` : family[1];
 };
+
+type ModelOptionNames = Pick<ProviderModelOption, 'value' | 'label' | 'resolvedLabel'>;
+
+/**
+ * The name model pickers show for a catalog option: the concrete model an
+ * alias such as `default` runs, once the server has resolved it.
+ */
+export const formatModelOptionLabel = (option: ModelOptionNames): string => (
+  option.resolvedLabel || option.label || option.value
+);
+
+/**
+ * The catalog label, kept as a hint under the concrete name when it says
+ * something that name does not: "Default (recommended)" under "Opus 5.5",
+ * but nothing under "Sonnet 5.5" for "Sonnet".
+ */
+export const formatModelOptionHint = (option: ModelOptionNames): string | undefined => {
+  if (!option.resolvedLabel || !option.label) {
+    return undefined;
+  }
+
+  const resolvedLabel = option.resolvedLabel.toLowerCase();
+  const addsInformation = option.label
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .some((word) => !resolvedLabel.includes(word));
+  return addsInformation ? option.label : undefined;
+};
+
+/** The "default" effort choice, naming the level it currently stands for when known. */
+export const formatDefaultEffortLabel = (defaultLabel: string, resolvedEffort: string | undefined): string => (
+  resolvedEffort ? `${defaultLabel} (${resolvedEffort})` : defaultLabel
+);

@@ -86,6 +86,7 @@ const executeModelsCommand = async (args, context, modelsService) => {
   const availableOptions = catalog.OPTIONS.map((option) => ({
     value: option.value,
     label: option.label,
+    resolvedLabel: option.resolvedLabel,
     description: option.description,
     recordId: option.recordId,
     isCustom: option.isCustom,
