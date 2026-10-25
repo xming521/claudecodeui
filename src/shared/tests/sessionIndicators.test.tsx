@@ -37,7 +37,7 @@ const pollResponse = (unseenTurns: Array<{ sessionId: string; outcome: string }>
 
 // The provider polls on a 5 s interval. The tests run that poll by hand
 // rather than faking timers, which waitFor itself relies on.
-let intervalSpy: ReturnType<typeof vi.spyOn>;
+let intervalSpy: { mock: { calls: unknown[][] }; mockRestore: () => void };
 const runNextPoll = async () => {
   const pollCall = intervalSpy.mock.calls.find((call) => call[1] === 5_000);
   assert.ok(pollCall, 'the provider polls on an interval');

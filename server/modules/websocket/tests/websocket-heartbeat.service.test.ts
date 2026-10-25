@@ -47,18 +47,37 @@ function createScheduler() {
   };
 }
 
-test('heartbeat terminates an open socket that does not answer its ping', () => {
+test('heartbeat terminates an open socket after twenty unanswered pings', () => {
   const socket = createFakeSocket();
   const scheduler = createScheduler();
   attachWebSocketHeartbeat(socket as never, 30_000, scheduler);
 
-  scheduler.tick();
-  assert.equal(socket.pingCount, 1);
-  assert.equal(socket.terminateCount, 0);
+  for (let tick = 0; tick < 20; tick += 1) {
+    scheduler.tick();
+  }
+  assert.equal(socket.pingCount, 20);
+  assert.equal(socket.terminateCount, 0, 'a suspended page gets ten minutes');
 
   scheduler.tick();
   assert.equal(socket.terminateCount, 1);
   assert.equal(scheduler.cleared(), true);
+});
+
+test('heartbeat forgives missed pings once the socket answers again', () => {
+  const socket = createFakeSocket();
+  const scheduler = createScheduler();
+  attachWebSocketHeartbeat(socket as never, 30_000, scheduler);
+
+  // The page was hidden for nine and a half minutes, then came back.
+  for (let tick = 0; tick < 19; tick += 1) {
+    scheduler.tick();
+  }
+  socket.emit('pong');
+  for (let tick = 0; tick < 19; tick += 1) {
+    scheduler.tick();
+  }
+
+  assert.equal(socket.terminateCount, 0);
 });
 
 test('heartbeat keeps responsive sockets open and stops after close', () => {

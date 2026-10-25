@@ -660,11 +660,12 @@ function handlePermissionResponse(data: AnyRecord, dependencies: ChatWebSocketDe
  * - `chat.stop-task`           { sessionId, taskId }
  * - `chat.subscribe`           { sessions: [{ sessionId, lastSeq? }] }
  * - `chat.permission-response` { requestId, allow, updatedInput?, message?, rememberEntry? }
+ * - `chat.ping`                {} — answered with `chat_pong`
  *
  * Outbound protocol (server to client): every frame is `kind`-based — either
  * a provider `NormalizedMessage` (with `seq`) or a gateway event
  * (`chat_subscribed`, `chat_send_accepted`, `session_upserted`,
- * `loading_progress`, `protocol_error`).
+ * `loading_progress`, `protocol_error`, `chat_pong`).
  */
 /**
  * Runs a turn for a session with no client attached.
@@ -769,6 +770,12 @@ export function handleChatConnection(
           return;
         case 'chat.permission-response':
           handlePermissionResponse(data, dependencies);
+          return;
+        case 'chat.ping':
+          // A page back from the background asks whether this socket
+          // survived. Logged so the share of kept sockets shows in the journal.
+          console.log('[INFO] Chat client back on its old socket');
+          sendJson(ws, { kind: 'chat_pong' });
           return;
         default:
           sendProtocolError(ws, 'UNKNOWN_MESSAGE_TYPE', `Unknown message type "${messageType}".`);

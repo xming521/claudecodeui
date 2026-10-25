@@ -57,12 +57,17 @@ const RECONNECT_DELAY_MS = 3000;
  */
 const ONLINE_GRACE_AFTER_OPEN_MS = 10_000;
 /**
- * A page hidden this long gets a fresh socket when it comes back, even if the
- * old one still reads as open. Phones suspend hidden pages, so the page stops
- * answering the server's 30 s pings and the server drops it within a minute,
- * usually without the page hearing about it until well after it is back.
+ * A page hidden this long checks its socket when it comes back. A phone
+ * suspends a hidden page, and the socket may or may not have survived: the
+ * server keeps a silent socket for ten minutes, but the network can drop it
+ * sooner, often without the page hearing about it until well after it is back.
  */
-const STALE_AFTER_HIDDEN_MS = 20_000;
+const CHECK_AFTER_HIDDEN_MS = 20_000;
+/**
+ * How long the old socket gets to answer the check. A live one answers in a
+ * round trip; one that has not by then is given up for dead.
+ */
+const PROBE_TIMEOUT_MS = 5000;
 
 /** Closes a socket without letting its handlers report a drop or schedule a reconnect. */
 function discardSocket(socket: WebSocket) {
@@ -111,6 +116,16 @@ const useWebSocketProviderState = (): WebSocketContextType => {
   const failedAttemptsRef = useRef(0);
   /** When the current socket opened, or null while none is open. */
   const openedAtRef = useRef<number | null>(null);
+  /**
+   * The open socket being checked after the page came back, and the deadline
+   * for its answer. Meanwhile a replacement opens in `candidateRef`: if the
+   * old socket answers first it stays and the replacement is dropped,
+   * otherwise the replacement takes over. A live old socket has already
+   * delivered everything the page missed, so keeping it skips both the
+   * handshake and the catch-up.
+   */
+  const probeRef = useRef<{ socket: WebSocket; timer: ReturnType<typeof setTimeout> } | null>(null);
+  const candidateRef = useRef<WebSocket | null>(null);
   const { isLoading: isAuthLoading, token, user } = useAuth();
   // Read at handshake time only. The server checks the token when a socket
   // opens, so a rotated token is for the next socket; replacing an open one
@@ -128,11 +143,44 @@ const useWebSocketProviderState = (): WebSocketContextType => {
     }
   }, []);
 
+  const stopProbe = useCallback(() => {
+    if (probeRef.current) {
+      clearTimeout(probeRef.current.timer);
+      probeRef.current = null;
+    }
+  }, []);
+
+  const dropCandidate = useCallback(() => {
+    if (candidateRef.current) {
+      discardSocket(candidateRef.current);
+      candidateRef.current = null;
+    }
+  }, []);
+
   // Named function expression so the reconnect timer below can call itself
   // without reading the `connect` binding while it is still initializing.
-  const connect = useCallback(function connect() {
+  const connect = useCallback(function connect(asCandidate = false) {
     if (unmountedRef.current) return; // Prevent connection if unmounted
     if (!IS_PLATFORM && (isAuthLoading || !user)) return;
+
+    /** The one pending retry; a later schedule replaces an earlier one. */
+    const scheduleConnect = (delay: number) => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      reconnectTimeoutRef.current = setTimeout(() => {
+        reconnectTimeoutRef.current = null;
+        if (unmountedRef.current) return; // Prevent reconnection if unmounted
+        // Still waiting on the old socket's answer: race it again.
+        connect(probeRef.current !== null);
+      }, delay);
+    };
+    const nextFailedHandshakeDelay = () => {
+      const delay = Math.min(RECONNECT_DELAY_MS, QUICK_RECONNECT_DELAY_MS * 2 ** failedAttemptsRef.current);
+      failedAttemptsRef.current += 1;
+      return delay;
+    };
+
     try {
       // Construct WebSocket URL
       const wsUrl = buildWebSocketUrl(tokenRef.current);
@@ -141,11 +189,24 @@ const useWebSocketProviderState = (): WebSocketContextType => {
 
       const websocket = new WebSocket(wsUrl);
       // Store connecting sockets too, so a sign-out can close them before
-      // their handshake completes.
-      wsRef.current = websocket;
+      // their handshake completes. A replacement waits in its own slot.
+      if (asCandidate) {
+        candidateRef.current = websocket;
+      } else {
+        wsRef.current = websocket;
+      }
       let wasOpen = false;
 
       websocket.onopen = () => {
+        if (candidateRef.current === websocket) {
+          // Opened before the old socket answered, so it takes over.
+          candidateRef.current = null;
+          stopProbe();
+          if (wsRef.current) {
+            discardSocket(wsRef.current);
+          }
+          wsRef.current = websocket;
+        }
         wasOpen = true;
         failedAttemptsRef.current = 0;
         openedAtRef.current = Date.now();
@@ -158,34 +219,62 @@ const useWebSocketProviderState = (): WebSocketContextType => {
       };
 
       websocket.onmessage = (event) => {
+        // A replacement that has not taken over has nothing the page needs.
+        if (wsRef.current !== websocket) {
+          return;
+        }
+        let data: ServerEvent;
         try {
-          const data = JSON.parse(event.data) as ServerEvent;
-          dispatch(data);
+          data = JSON.parse(event.data) as ServerEvent;
         } catch (error) {
           console.error('Error parsing WebSocket message:', error);
+          return;
         }
+        if (data.kind === 'chat_pong') {
+          // The old socket is alive, and what the page missed has already
+          // come in on it ahead of this answer.
+          if (probeRef.current?.socket === websocket) {
+            stopProbe();
+            dropCandidate();
+            failedAttemptsRef.current = 0;
+            if (reconnectTimeoutRef.current) {
+              clearTimeout(reconnectTimeoutRef.current);
+              reconnectTimeoutRef.current = null;
+            }
+          }
+          return;
+        }
+        dispatch(data);
       };
 
       websocket.onclose = () => {
+        if (candidateRef.current === websocket) {
+          // A replacement failed to open. Try again as after any failed
+          // handshake; the old socket may still answer in the meantime.
+          candidateRef.current = null;
+          if (!wsRef.current) {
+            // The old socket is gone too, so the connection is lost.
+            setConnectionStatus('disconnected');
+          }
+          scheduleConnect(nextFailedHandshakeDelay());
+          return;
+        }
         if (wsRef.current !== websocket) {
+          return;
+        }
+        wsRef.current = null;
+        openedAtRef.current = null;
+        stopProbe();
+        if (candidateRef.current) {
+          // Died while being checked; the replacement opening takes over.
+          setConnectionStatus('connecting');
           return;
         }
         // Also reached when the very first attempt fails, which is a lost
         // connection too. The effect cleanup detaches this handler before
         // closing a socket on purpose, so a sign-out never gets here.
         setConnectionStatus('disconnected');
-        wsRef.current = null;
-        openedAtRef.current = null;
-
-        let delay = QUICK_RECONNECT_DELAY_MS;
-        if (!wasOpen) {
-          delay = Math.min(RECONNECT_DELAY_MS, QUICK_RECONNECT_DELAY_MS * 2 ** failedAttemptsRef.current);
-          failedAttemptsRef.current += 1;
-        }
-        reconnectTimeoutRef.current = setTimeout(() => {
-          if (unmountedRef.current) return; // Prevent reconnection if unmounted
-          connect();
-        }, delay);
+        scheduleConnect(wasOpen ? QUICK_RECONNECT_DELAY_MS : nextFailedHandshakeDelay());
       };
 
       websocket.onerror = (error) => {
@@ -195,12 +284,12 @@ const useWebSocketProviderState = (): WebSocketContextType => {
     } catch (error) {
       console.error('Error creating WebSocket connection:', error);
     }
-  }, [dispatch, isAuthLoading, user]); // reconnect when sign-in state changes, not on token rotation
+  }, [dispatch, dropCandidate, isAuthLoading, stopProbe, user]); // reconnect when sign-in state changes, not on token rotation
 
   // Declared after `connect` so the effect body does not reference it before
-  // initialization. `connect` is memoized on [dispatch, isAuthLoading, user]
-  // and `dispatch` is stable, so depending on it reconnects on exactly the
-  // same transitions as the [isAuthLoading, user] list.
+  // initialization. `connect` is memoized on [isAuthLoading, user] plus
+  // stable callbacks, so depending on it reconnects on exactly the same
+  // transitions as the [isAuthLoading, user] list.
   useEffect(() => {
     // The cleanup below sets unmountedRef = true. Without this reset, every
     // re-run of the effect (e.g. on signing in again) would short-circuit connect()
@@ -218,6 +307,8 @@ const useWebSocketProviderState = (): WebSocketContextType => {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
       }
+      stopProbe();
+      dropCandidate();
       if (wsRef.current) {
         discardSocket(wsRef.current);
         wsRef.current = null;
@@ -227,6 +318,35 @@ const useWebSocketProviderState = (): WebSocketContextType => {
       // still reads as disconnected.
       setConnectionStatus('connecting');
       connect();
+    };
+
+    // Keeps a socket that is still alive and replaces one that is not,
+    // without first waiting to learn which: the replacement starts opening
+    // at once, so a dead socket costs no more than before.
+    const checkSocket = () => {
+      const socket = wsRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        reconnectNow();
+        return;
+      }
+      if (probeRef.current) {
+        return;
+      }
+      socket.send(JSON.stringify({ type: 'chat.ping' }));
+      const timer = setTimeout(() => {
+        probeRef.current = null;
+        if (wsRef.current !== socket) {
+          return;
+        }
+        // No answer: dead, though it still reads as open. A replacement is
+        // opening or scheduled, since only an answer cancels it.
+        discardSocket(socket);
+        wsRef.current = null;
+        openedAtRef.current = null;
+        setConnectionStatus(candidateRef.current ? 'connecting' : 'disconnected');
+      }, PROBE_TIMEOUT_MS);
+      probeRef.current = { socket, timer };
+      connect(true);
     };
 
     let hiddenAt: number | null = document.hidden ? Date.now() : null;
@@ -241,25 +361,31 @@ const useWebSocketProviderState = (): WebSocketContextType => {
       const isClosed = !socket
         || socket.readyState === WebSocket.CLOSING
         || socket.readyState === WebSocket.CLOSED;
-      if (isClosed || hiddenFor >= STALE_AFTER_HIDDEN_MS) {
+      if (isClosed) {
         reconnectNow();
+      } else if (hiddenFor >= CHECK_AFTER_HIDDEN_MS) {
+        checkSocket();
       }
     };
     // Whatever socket existed before the network went away is dead. One that
     // opened after the last `offline` and only just now is on the new network.
+    // An `online` with no `offline` since the socket opened is often a phone
+    // delivering it late on resume, so that socket is checked, not dropped.
     let offlineAt: number | null = null;
     const handleOffline = () => {
       offlineAt = Date.now();
     };
     const handleOnline = () => {
       const openedAt = openedAtRef.current;
-      const openedJustNow = openedAt !== null
-        && Date.now() - openedAt < ONLINE_GRACE_AFTER_OPEN_MS
-        && (offlineAt === null || openedAt > offlineAt);
-      if (openedJustNow && wsRef.current?.readyState === WebSocket.OPEN) {
+      const offlineSinceOpen = offlineAt !== null && (openedAt === null || offlineAt >= openedAt);
+      if (offlineSinceOpen) {
+        reconnectNow();
         return;
       }
-      reconnectNow();
+      if (openedAt !== null && Date.now() - openedAt < ONLINE_GRACE_AFTER_OPEN_MS) {
+        return;
+      }
+      checkSocket();
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('online', handleOnline);
@@ -272,7 +398,10 @@ const useWebSocketProviderState = (): WebSocketContextType => {
       window.removeEventListener('offline', handleOffline);
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
       }
+      stopProbe();
+      dropCandidate();
       const activeSocket = wsRef.current;
       if (activeSocket) {
         // Prevent the intentionally closed socket from scheduling a
@@ -287,7 +416,7 @@ const useWebSocketProviderState = (): WebSocketContextType => {
       // before must not show as "Reconnecting" after the next sign-in.
       setConnectionStatus('connecting');
     };
-  }, [connect, isAuthLoading, user]); // reconnect after sign-in or sign-out
+  }, [connect, dropCandidate, isAuthLoading, stopProbe, user]); // reconnect after sign-in or sign-out
 
   const sendMessage = useCallback((message: unknown) => {
     const socket = wsRef.current;

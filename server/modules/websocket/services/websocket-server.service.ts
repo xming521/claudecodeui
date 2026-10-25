@@ -17,6 +17,17 @@ type WebSocketServerDependencies = {
 };
 
 /**
+ * Pings in a row a socket may leave unanswered before the server drops it.
+ * A phone suspends a hidden page, which then answers no pings, but its
+ * connection usually survives: the phone still takes in what the server sends
+ * and the page reads it all the moment it is back. Dropping the socket at the
+ * first missed ping forced a fresh handshake after every app switch. Twenty
+ * pings at 30 s give such a page ten minutes; a peer that is really gone is
+ * dropped then, or sooner when TCP gives up on it.
+ */
+const MAX_UNANSWERED_PINGS = 20;
+
+/**
  * Used by this module's websocket gateway to keep active transports alive and
  * close half-open connections so their route-specific clients can reconnect.
  */
@@ -28,11 +39,11 @@ export function attachWebSocketHeartbeat(
     clearInterval,
   },
 ): () => void {
-  let isAlive = true;
+  let unansweredPings = 0;
   let stopped = false;
 
   const markAlive = () => {
-    isAlive = true;
+    unansweredPings = 0;
   };
 
   const stopHeartbeat = () => {
@@ -56,15 +67,15 @@ export function attachWebSocketHeartbeat(
       return;
     }
 
-    // A socket that did not answer the previous ping is half-open from the
-    // server's perspective. Terminating it emits close and lets clients resume.
-    if (!isAlive) {
+    // Silent for this long, the socket is taken as half-open. Terminating it
+    // emits close and lets clients resume.
+    if (unansweredPings >= MAX_UNANSWERED_PINGS) {
       stopHeartbeat();
       ws.terminate();
       return;
     }
 
-    isAlive = false;
+    unansweredPings += 1;
     try {
       ws.ping();
     } catch {
