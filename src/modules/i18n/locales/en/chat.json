@@ -151,6 +151,7 @@
     "showAllCommands": "Show all commands",
     "clearInput": "Clear input",
     "scrollToBottom": "Scroll to bottom",
+    "switchConversation": "Switch conversation",
     "queue": {
       "sendNext": "Queue next message",
       "update": "Update queued message",

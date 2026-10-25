@@ -175,6 +175,7 @@ function WorkspaceMain({
                 externalMessageUpdate={externalMessageUpdate}
                 newSessionTrigger={newSessionTrigger}
                 onShowAllTasks={tasksEnabled ? showAllTasks : null}
+                onOpenSessionList={isMobile ? onMenuClick : undefined}
               />
             </WorkspaceErrorBoundary>
           </div>
