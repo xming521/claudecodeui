@@ -1,7 +1,11 @@
 import { WifiOff } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useWebSocket } from '@/shared/context/WebSocketContext';
+
+/** A drop that recovers within this long (the quick retry after a blip) is not shown. */
+const SHOW_AFTER_MS = 1500;
 
 /**
  * Rendered by WorkspaceHeader so that a lost chat connection is visible on
@@ -11,7 +15,16 @@ import { useWebSocket } from '@/shared/context/WebSocketContext';
 export default function WorkspaceConnectionStatus() {
   const { t } = useTranslation();
   const { connectionStatus } = useWebSocket();
-  const isDisconnected = connectionStatus === 'disconnected';
+  const isLost = connectionStatus === 'disconnected';
+  const [isShown, setIsShown] = useState(false);
+  useEffect(() => {
+    if (!isLost) {
+      setIsShown(false);
+      return undefined;
+    }
+    const timer = setTimeout(() => setIsShown(true), SHOW_AFTER_MS);
+    return () => clearTimeout(timer);
+  }, [isLost]);
   // Names the chat connection, since the Shell tab shows its own socket's state.
   const description = t('status.chatConnectionLost');
 
@@ -22,9 +35,9 @@ export default function WorkspaceConnectionStatus() {
           Visually hidden and absolutely positioned, so while connected it takes
           no room and no flex gap from the title. */}
       <div role="status" aria-live="polite" className="sr-only">
-        {isDisconnected ? description : null}
+        {isShown ? description : null}
       </div>
-      {isDisconnected && (
+      {isShown && (
         // Hidden from screen readers, which get the live region above instead.
         // Between sm and xl the title box is capped at a third of a narrow
         // header, so the pill drops its label there and keeps the tooltip.

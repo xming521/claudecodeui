@@ -84,8 +84,17 @@ const renderProvider = () => render(<WebSocketProvider><RecordStatus /></WebSock
 const socket = (index: number) => FakeWebSocket.instances[index] as FakeWebSocket;
 const lastStatus = () => seen[seen.length - 1];
 
+let pageHidden = false;
+/** The phone locks or switches apps (`true`), or the user comes back (`false`). */
+const setPageHidden = (hidden: boolean) => {
+  pageHidden = hidden;
+  document.dispatchEvent(new Event('visibilitychange'));
+};
+
 beforeEach(() => {
   vi.useFakeTimers();
+  pageHidden = false;
+  Object.defineProperty(document, 'hidden', { configurable: true, get: () => pageHidden });
   FakeWebSocket.instances = [];
   seen = [];
   isConnected = null;
@@ -203,4 +212,74 @@ test('signing out while connected stops reporting a live connection', () => {
   assert.equal(socket(0).readyState, FakeWebSocket.CLOSED, 'the socket was closed on sign-out');
   assert.equal(lastStatus(), 'connecting');
   assert.equal(isConnected, false, 'isConnected no longer reports the closed socket as live');
+});
+
+test('an open socket that drops is retried after half a second', () => {
+  renderProvider();
+  act(() => socket(0).serverOpens());
+  act(() => socket(0).serverDrops());
+
+  act(() => { vi.advanceTimersByTime(499); });
+  assert.equal(FakeWebSocket.instances.length, 1);
+  act(() => { vi.advanceTimersByTime(1); });
+  assert.equal(FakeWebSocket.instances.length, 2);
+});
+
+test('coming back after a long lock replaces the socket without reading as lost', () => {
+  renderProvider();
+  act(() => socket(0).serverOpens());
+
+  // The server dropped the suspended page, but the page has not heard yet.
+  act(() => setPageHidden(true));
+  act(() => { vi.advanceTimersByTime(60_000); });
+  seen = [];
+  act(() => setPageHidden(false));
+
+  assert.equal(FakeWebSocket.instances.length, 2, 'a fresh socket was opened at once');
+  assert.equal(socket(0).readyState, FakeWebSocket.CLOSED, 'the stale one was closed');
+  assert.equal(lastStatus(), 'connecting');
+  // Closing the stale socket scheduled no extra retry.
+  act(() => { vi.advanceTimersByTime(3000); });
+  assert.equal(FakeWebSocket.instances.length, 2);
+
+  act(() => socket(1).serverOpens());
+  assert.equal(lastStatus(), 'connected');
+  assert.ok(!seen.includes('disconnected'), `statuses seen: ${seen.join(', ')}`);
+});
+
+test('a quick app switch keeps the open socket', () => {
+  renderProvider();
+  act(() => socket(0).serverOpens());
+
+  act(() => setPageHidden(true));
+  act(() => { vi.advanceTimersByTime(5000); });
+  act(() => setPageHidden(false));
+
+  assert.equal(FakeWebSocket.instances.length, 1);
+  assert.equal(lastStatus(), 'connected');
+});
+
+test('a socket that died in the background reconnects as soon as the page is back', () => {
+  renderProvider();
+  act(() => socket(0).serverOpens());
+  act(() => setPageHidden(true));
+  act(() => socket(0).serverDrops());
+  // A suspended page runs no timers, so the scheduled retry never fired.
+  act(() => setPageHidden(false));
+
+  assert.equal(FakeWebSocket.instances.length, 2, 'reconnected without waiting for the retry timer');
+  assert.equal(lastStatus(), 'connecting');
+  act(() => { vi.advanceTimersByTime(3000); });
+  assert.equal(FakeWebSocket.instances.length, 2, 'the pending retry was cancelled');
+});
+
+test('coming back online replaces the socket', () => {
+  renderProvider();
+  act(() => socket(0).serverOpens());
+  act(() => { window.dispatchEvent(new Event('online')); });
+
+  assert.equal(FakeWebSocket.instances.length, 2);
+  assert.equal(socket(0).readyState, FakeWebSocket.CLOSED);
+  act(() => socket(1).serverOpens());
+  assert.equal(lastStatus(), 'connected');
 });

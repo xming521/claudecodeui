@@ -10,9 +10,10 @@ type ServerEventListener = (event: ServerEvent) => void;
 
 /**
  * Where the chat socket stands. `connecting` covers a handshake the provider
- * started on purpose (after sign-in, or with a refreshed token) and the time
- * signed out; `disconnected` a socket that closed on its own (it dropped, or an
- * attempt failed) until a reconnect opens again.
+ * started on purpose (after sign-in, with a refreshed token, or on returning to
+ * a page whose socket went stale) and the time signed out; `disconnected` a
+ * socket that closed on its own (it dropped, or an attempt failed) until a
+ * reconnect opens again.
  */
 type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 
@@ -40,6 +41,27 @@ type WebSocketContextType = {
 };
 
 const WebSocketContext = createContext<WebSocketContextType | null>(null);
+
+/** First retry after an open socket drops: most drops are a blip. */
+const QUICK_RECONNECT_DELAY_MS = 500;
+/** Retry after a handshake that failed. */
+const RECONNECT_DELAY_MS = 3000;
+/**
+ * A page hidden this long gets a fresh socket when it comes back, even if the
+ * old one still reads as open. Phones suspend hidden pages, so the page stops
+ * answering the server's 30 s pings and the server drops it within a minute,
+ * usually without the page hearing about it until well after it is back.
+ */
+const STALE_AFTER_HIDDEN_MS = 20_000;
+
+/** Closes a socket without letting its handlers report a drop or schedule a reconnect. */
+function discardSocket(socket: WebSocket) {
+  socket.onopen = null;
+  socket.onmessage = null;
+  socket.onclose = null;
+  socket.onerror = null;
+  socket.close();
+}
 
 export const useWebSocket = () => {
   const context = useContext(WebSocketContext);
@@ -102,8 +124,10 @@ const useWebSocketProviderState = (): WebSocketContextType => {
       // Store connecting sockets too, so a token refresh can close them before
       // their handshake completes with stale credentials.
       wsRef.current = websocket;
+      let wasOpen = false;
 
       websocket.onopen = () => {
+        wasOpen = true;
         setConnectionStatus('connected');
         if (hasConnectedRef.current) {
           // This is a reconnect — signal so components can catch up on missed messages
@@ -131,11 +155,10 @@ const useWebSocketProviderState = (): WebSocketContextType => {
         setConnectionStatus('disconnected');
         wsRef.current = null;
 
-        // Attempt to reconnect after 3 seconds
         reconnectTimeoutRef.current = setTimeout(() => {
           if (unmountedRef.current) return; // Prevent reconnection if unmounted
           connect();
-        }, 3000);
+        }, wasOpen ? QUICK_RECONNECT_DELAY_MS : RECONNECT_DELAY_MS);
       };
 
       websocket.onerror = (error) => {
@@ -161,8 +184,48 @@ const useWebSocketProviderState = (): WebSocketContextType => {
     }
     connect();
 
+    // Replaces the socket now rather than waiting for the browser to report
+    // the old one dead, which on a phone can take a minute after unlocking.
+    const reconnectNow = () => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      if (wsRef.current) {
+        discardSocket(wsRef.current);
+        wsRef.current = null;
+      }
+      // Started on purpose, so a quick reopen shows no warning; a failure
+      // still reads as disconnected.
+      setConnectionStatus('connecting');
+      connect();
+    };
+
+    let hiddenAt: number | null = document.hidden ? Date.now() : null;
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        hiddenAt = Date.now();
+        return;
+      }
+      const hiddenFor = hiddenAt === null ? 0 : Date.now() - hiddenAt;
+      hiddenAt = null;
+      const socket = wsRef.current;
+      const isClosed = !socket
+        || socket.readyState === WebSocket.CLOSING
+        || socket.readyState === WebSocket.CLOSED;
+      if (isClosed || hiddenFor >= STALE_AFTER_HIDDEN_MS) {
+        reconnectNow();
+      }
+    };
+    // Whatever socket existed before the network went away is dead.
+    const handleOnline = () => reconnectNow();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('online', handleOnline);
+
     return () => {
       unmountedRef.current = true;
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('online', handleOnline);
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }
@@ -170,11 +233,7 @@ const useWebSocketProviderState = (): WebSocketContextType => {
       if (activeSocket) {
         // Prevent the intentionally closed, old-token socket from scheduling
         // a reconnect after the refreshed-token effect has already started.
-        activeSocket.onopen = null;
-        activeSocket.onmessage = null;
-        activeSocket.onclose = null;
-        activeSocket.onerror = null;
-        activeSocket.close();
+        discardSocket(activeSocket);
         wsRef.current = null;
       }
       // What comes next is a socket with a refreshed token, or none after a

@@ -134,11 +134,13 @@ test('the header says it is reconnecting while the chat socket is down, and clea
   act(() => latestSocket().serverOpens());
 
   act(() => latestSocket().serverDrops());
-  assert.equal(isIndicatorShown(), true, 'a dropped socket is shown');
+  // A blip that the quick retry fixes is not worth a warning.
+  assert.equal(isIndicatorShown(), false, 'not shown the instant the socket drops');
+  act(() => { vi.advanceTimersByTime(1500); });
+  assert.equal(isIndicatorShown(), true, 'a socket that stays down is shown');
   assert.equal(liveRegionText(), 'Chat connection lost. Reconnecting...', 'and announced, naming the chat connection');
 
   // Still down while the retry handshakes, and on another tab too.
-  act(() => { vi.advanceTimersByTime(3000); });
   view.rerender(header('files'));
   assert.equal(isIndicatorShown(), true);
 
@@ -150,5 +152,16 @@ test('the header says it is reconnecting while the chat socket is down, and clea
 test('a first connection that fails is shown too', () => {
   render(header('chat'));
   act(() => latestSocket().serverDrops());
+  act(() => { vi.advanceTimersByTime(1500); });
   assert.equal(isIndicatorShown(), true);
+});
+
+test('a drop that the quick retry fixes never shows the indicator', () => {
+  render(header('chat'));
+  act(() => latestSocket().serverOpens());
+  act(() => latestSocket().serverDrops());
+  act(() => { vi.advanceTimersByTime(500); });
+  act(() => latestSocket().serverOpens());
+  act(() => { vi.advanceTimersByTime(3000); });
+  assert.equal(isIndicatorShown(), false);
 });
