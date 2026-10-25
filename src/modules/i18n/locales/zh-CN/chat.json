@@ -138,7 +138,6 @@
     "showAllCommands": "显示所有命令",
     "clearInput": "清空输入",
     "scrollToBottom": "滚动到底部",
-    "switchConversation": "切换对话",
     "queue": {
       "sendNext": "排队发送下一条消息",
       "update": "更新排队消息",
@@ -258,6 +257,14 @@
     "answeredBy": "由 {{model}} 回答"
   },
   "composer": {
+    "more": {
+      "trigger": "更多",
+      "tokens": "上下文用量",
+      "commands": "命令",
+      "schedule": "定时发送",
+      "scheduleNeedsText": "先输入要发送的消息",
+      "back": "返回"
+    },
     "sendNotConfirmed": "服务器未确认收到您的消息，因此它可能没有发送成功。消息仍保留在这里，请再次发送以重试。",
     "sendRefused": "消息未发送：{{error}}",
     "editing": {

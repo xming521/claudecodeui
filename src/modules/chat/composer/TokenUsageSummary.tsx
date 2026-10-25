@@ -7,7 +7,7 @@ type TokenUsageSummaryProps = {
   onClick?: () => void;
 };
 
-const formatTokenCount = (value: number) => {
+export const formatTokenCount = (value: number) => {
   if (!Number.isFinite(value) || value <= 0) {
     return '0';
   }
@@ -32,19 +32,24 @@ const readUsageNumber = (value: unknown) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-/**
- * Rendered by chat's ChatComposer to show the session's context-window usage
- * and open the detailed token breakdown on click.
- */
-function TokenUsageSummary({ usage, onClick }: TokenUsageSummaryProps) {
-  const { t } = useTranslation();
+/** Tokens the session has used, read from whichever fields the provider reports. */
+export const readUsedTokens = (usage: Record<string, unknown> | null): number => {
   const breakdown =
     usage?.breakdown && typeof usage.breakdown === 'object'
       ? usage.breakdown as Record<string, unknown>
       : null;
   const inputTokens = readUsageNumber(usage?.inputTokens ?? breakdown?.input);
   const outputTokens = readUsageNumber(usage?.outputTokens ?? breakdown?.output);
-  const usedTokens = readUsageNumber(usage?.used) || inputTokens + outputTokens;
+  return readUsageNumber(usage?.used) || inputTokens + outputTokens;
+};
+
+/**
+ * Rendered by chat's ChatComposer to show the session's context-window usage
+ * and open the detailed token breakdown on click.
+ */
+function TokenUsageSummary({ usage, onClick }: TokenUsageSummaryProps) {
+  const { t } = useTranslation();
+  const usedTokens = readUsedTokens(usage);
 
   return (
     <button

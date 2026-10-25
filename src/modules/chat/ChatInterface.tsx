@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ArrowDownIcon, MessagesSquareIcon } from 'lucide-react';
+import { ArrowDownIcon } from 'lucide-react';
 
 import { useTasksSettings } from '@/modules/task-master';
-import { usePaletteOpsRegister } from '@/modules/command-palette';
+import { usePaletteOps, usePaletteOpsRegister } from '@/modules/command-palette';
 import { useWebSocket } from '@/shared/context/WebSocketContext';
 import PermissionContext from '@/modules/chat/context/PermissionContext';
 import { MarkdownWorkspaceContext } from '@/modules/chat/context/MarkdownWorkspaceContext';
@@ -27,6 +27,7 @@ import {
   useSessionProtectionActions,
 } from '@/shared/context/SessionProtectionContext';
 import ChatMessagesPane from '@/modules/chat/transcript/ChatMessagesPane';
+import { useTranscriptExport } from '@/modules/chat/transcript/ChatExportMenu';
 import ChatComposer from '@/modules/chat/composer/ChatComposer';
 import CommandResultModal from '@/modules/chat/modals/CommandResultModal';
 
@@ -47,12 +48,6 @@ type ChatInterfaceProps = {
   newSessionTrigger?: number;
   onTaskClick?: (...args: unknown[]) => void;
   onShowAllTasks?: (() => void) | null;
-  /**
-   * Opens the conversation list. Given on phones only, where the header's
-   * menu button sits out of thumb reach; renders a tab at the left edge just
-   * above the composer.
-   */
-  onOpenSessionList?: () => void;
 };
 
 /**
@@ -76,7 +71,6 @@ function ChatInterface({
   externalMessageUpdate,
   newSessionTrigger,
   onShowAllTasks,
-  onOpenSessionList,
 }: ChatInterfaceProps) {
   const { tasksEnabled, isTaskMasterInstalled } = useTasksSettings();
   const { subscribe } = useWebSocket();
@@ -336,6 +330,15 @@ function ChatInterface({
   }, [setInput, textareaRef]);
 
   usePaletteOpsRegister({ insertComposerText });
+  const { openQuickSettings } = usePaletteOps();
+  const transcriptExport = useTranscriptExport({
+    messages: chatMessages,
+    sessionTitle: selectedSession?.summary || selectedSession?.title,
+    provider,
+    selectedProject,
+    createDiff,
+    onLoadFullTranscript: loadFullTranscript,
+  });
 
   useEffect(() => {
     if (!canAbortSession) {
@@ -532,19 +535,6 @@ function ChatInterface({
         </MarkdownWorkspaceContext.Provider>
 
         <div className="relative flex-shrink-0">
-          {onOpenSessionList && (
-            // Clear of the activity line and the scroll button above the
-            // composer, and carried up with it when banners grow it.
-            <button
-              type="button"
-              onClick={onOpenSessionList}
-              aria-label={t('input.switchConversation', { defaultValue: 'Switch conversation' })}
-              title={t('input.switchConversation', { defaultValue: 'Switch conversation' })}
-              className="absolute -top-24 left-0 z-20 rounded-r-md border border-l-0 border-gray-200 bg-white p-2 shadow-lg transition-colors active:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:active:bg-gray-700"
-            >
-              <MessagesSquareIcon className="h-5 w-5 text-gray-600 dark:text-gray-400" aria-hidden />
-            </button>
-          )}
           {isUserScrolledUp && chatMessages.length > 0 && (
             <div className="pointer-events-none absolute -top-11 left-0 right-0 z-20 flex justify-center">
               <button
@@ -586,6 +576,8 @@ function ChatInterface({
           onCancelScheduledMessage={cancelScheduledMessage}
           slashCommandsCount={slashCommandsCount}
           onToggleCommandMenu={handleToggleCommandMenu}
+          transcriptExport={transcriptExport}
+          onOpenQuickSettings={openQuickSettings}
           hasInput={Boolean(input.trim())}
           onClearInput={handleClearInput}
           onSubmit={handleSubmit}

@@ -151,7 +151,6 @@
     "showAllCommands": "Show all commands",
     "clearInput": "Clear input",
     "scrollToBottom": "Scroll to bottom",
-    "switchConversation": "Switch conversation",
     "queue": {
       "sendNext": "Queue next message",
       "update": "Update queued message",
@@ -162,6 +161,14 @@
     }
   },
   "composer": {
+    "more": {
+      "trigger": "More",
+      "tokens": "Context used",
+      "commands": "Commands",
+      "schedule": "Send later",
+      "scheduleNeedsText": "Type a message first",
+      "back": "Back"
+    },
     "sendNotConfirmed": "The server did not confirm your message, so it may not have been sent. It is still here — send it again to retry.",
     "sendRefused": "Your message was not sent: {{error}}",
     "reasoning": "Reasoning",

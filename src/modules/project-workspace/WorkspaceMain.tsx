@@ -13,6 +13,7 @@ import { useUiPreferences } from '@/shared/context/UiPreferencesContext';
 import { useFileOpenResolver } from '@/modules/project-workspace/hooks/useFileOpenResolver';
 import { EditorSidebar, useEditorSidebar } from '@/modules/code-editor';
 import WorkspaceHeader from '@/modules/project-workspace/WorkspaceHeader';
+import WorkspaceMobileBar from '@/modules/project-workspace/WorkspaceMobileBar';
 import WorkspaceStateView from '@/modules/project-workspace/WorkspaceStateView';
 import WorkspaceErrorBoundary from '@/modules/project-workspace/WorkspaceErrorBoundary';
 
@@ -143,17 +144,17 @@ function WorkspaceMain({
 
   return (
     <div className="flex h-full flex-col">
-      <WorkspaceHeader
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        selectedProject={selectedProject}
-        selectedSession={selectedSession}
-        shouldShowTasksTab={shouldShowTasksTab}
-        shouldShowBrowserTab={shouldShowBrowserTab}
-        isMobile={isMobile}
-        onMenuClick={onMenuClick}
-        onRenameSession={onRenameSession}
-      />
+      {!isMobile && (
+        <WorkspaceHeader
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          selectedProject={selectedProject}
+          selectedSession={selectedSession}
+          shouldShowTasksTab={shouldShowTasksTab}
+          shouldShowBrowserTab={shouldShowBrowserTab}
+          onRenameSession={onRenameSession}
+        />
+      )}
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className={`flex min-h-0 min-w-[200px] flex-col overflow-hidden ${editorExpanded ? 'hidden' : ''} flex-1`}>
@@ -175,7 +176,6 @@ function WorkspaceMain({
                 externalMessageUpdate={externalMessageUpdate}
                 newSessionTrigger={newSessionTrigger}
                 onShowAllTasks={tasksEnabled ? showAllTasks : null}
-                onOpenSessionList={isMobile ? onMenuClick : undefined}
               />
             </WorkspaceErrorBoundary>
           </div>
@@ -247,6 +247,19 @@ function WorkspaceMain({
           fillSpace={activeTab === 'files'}
         />
       </div>
+
+      {isMobile && (
+        <WorkspaceMobileBar
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          selectedProject={selectedProject}
+          selectedSession={selectedSession}
+          shouldShowTasksTab={shouldShowTasksTab}
+          shouldShowBrowserTab={shouldShowBrowserTab}
+          onMenuClick={onMenuClick}
+          onRenameSession={onRenameSession}
+        />
+      )}
     </div>
   );
 }

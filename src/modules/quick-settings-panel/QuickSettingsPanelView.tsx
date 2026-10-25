@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 
+import { usePaletteOpsRegister } from '@/modules/command-palette';
 import { useDeviceSettings } from '@/shared/hooks/useDeviceSettings';
 import { useProjectSlashCommands } from '@/shared/hooks/useProjectSlashCommands';
 import { useSelectedProvider } from '@/shared/hooks/useSelectedProvider';
@@ -37,10 +38,12 @@ function QuickSettingsPanelView({ selectedProject, onInsertCommand }: QuickSetti
     isPinned,
     activeTab,
     close,
+    open,
     toggle,
     selectTab,
     togglePin,
   } = useQuickSettingsPanelState({ canPin });
+  usePaletteOpsRegister({ openQuickSettings: open });
   const { isDarkMode } = useTheme();
   const preferences = useUiPreferences();
   const setPreference = useSetUiPreference();
@@ -166,14 +169,17 @@ function QuickSettingsPanelView({ selectedProject, onInsertCommand }: QuickSetti
 
   return (
     <>
-      <QuickSettingsHandle
-        isOpen={isOpen}
-        isDragging={isDragging}
-        style={handleStyle}
-        onClick={handleToggleFromHandle}
-        onMouseDown={startDrag}
-        onTouchStart={startDrag}
-      />
+      {/* On phones the edge handle covered the transcript; the composer's More menu opens the drawer there. */}
+      {!isMobile && (
+        <QuickSettingsHandle
+          isOpen={isOpen}
+          isDragging={isDragging}
+          style={handleStyle}
+          onClick={handleToggleFromHandle}
+          onMouseDown={startDrag}
+          onTouchStart={startDrag}
+        />
+      )}
 
       {/* Docked: a layout column while open, gone while collapsed via the handle (the pin is kept). */}
       {isPinned ? (

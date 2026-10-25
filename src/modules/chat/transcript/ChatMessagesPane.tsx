@@ -207,7 +207,8 @@ function ChatMessagesPane({
               onLoadAll={loadAllMessages}
             />
           </div>
-          <div className="pointer-events-auto">
+          {/* On phones the composer's More menu exports instead. */}
+          <div className="pointer-events-auto hidden md:block">
             <ChatExportMenu
               messages={chatMessages}
               sessionTitle={selectedSession?.summary || selectedSession?.title}

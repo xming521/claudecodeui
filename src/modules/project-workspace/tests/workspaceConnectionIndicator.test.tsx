@@ -83,8 +83,6 @@ const header = (activeTab: AppTab) => (
       selectedSession={null}
       shouldShowTasksTab={false}
       shouldShowBrowserTab={false}
-      isMobile={false}
-      onMenuClick={() => undefined}
       onRenameSession={async () => true}
     />
   </WebSocketProvider>

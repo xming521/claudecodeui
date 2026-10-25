@@ -12,6 +12,8 @@ type WorkspaceTabsProps = {
   setActiveTab: Dispatch<SetStateAction<AppTab>>;
   shouldShowTasksTab: boolean;
   shouldShowBrowserTab: boolean;
+  /** Icons only, tooltips above: the phone's bottom bar has no room for the active tab's label. */
+  compact?: boolean;
 };
 
 type BuiltInTab = {
@@ -52,12 +54,13 @@ const TASKS_TAB: BuiltInTab = {
   icon: ClipboardCheck,
 };
 
-/** Rendered by WorkspaceHeader to show the built-in workspace tabs plus any enabled plugin tabs. */
+/** Rendered by WorkspaceHeader and WorkspaceMobileBar to show the built-in workspace tabs plus any enabled plugin tabs. */
 export default function WorkspaceTabs({
   activeTab,
   setActiveTab,
   shouldShowTasksTab,
   shouldShowBrowserTab,
+  compact = false,
 }: WorkspaceTabsProps) {
   const { t } = useTranslation();
   const { plugins } = usePlugins();
@@ -114,7 +117,7 @@ export default function WorkspaceTabs({
             {index === builtInTabs.length && pluginTabs.length > 0 && (
               <span aria-hidden="true" className="mx-1 h-4 w-px shrink-0 bg-border" />
             )}
-            <Tooltip content={displayLabel} position="bottom">
+            <Tooltip content={displayLabel} position={compact ? 'top' : 'bottom'}>
               <Pill
                 role="tab"
                 aria-label={displayLabel}
@@ -134,9 +137,11 @@ export default function WorkspaceTabs({
                     className="flex h-3.5 w-3.5 shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full"
                   />
                 )}
-                <span className={`${isActive ? 'inline max-w-28' : 'hidden'} truncate sm:max-w-36 lg:inline`}>
-                  {displayLabel}
-                </span>
+                {!compact && (
+                  <span className={`${isActive ? 'inline max-w-28' : 'hidden'} truncate sm:max-w-36 lg:inline`}>
+                    {displayLabel}
+                  </span>
+                )}
               </Pill>
             </Tooltip>
           </Fragment>

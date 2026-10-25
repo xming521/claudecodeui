@@ -25,17 +25,14 @@ type ChatExportMenuProps = {
   onLoadFullTranscript?: () => Promise<ChatMessage[]>;
 };
 
-const FORMATS: Array<{ id: TranscriptExportFormat; icon: typeof FileText; labelKey: string; descriptionKey: string }> = [
+export const TRANSCRIPT_EXPORT_FORMATS: Array<{ id: TranscriptExportFormat; icon: typeof FileText; labelKey: string; descriptionKey: string }> = [
   { id: 'html', icon: FileCode2, labelKey: 'export.html.label', descriptionKey: 'export.html.description' },
   { id: 'markdown', icon: FileText, labelKey: 'export.markdown.label', descriptionKey: 'export.markdown.description' },
   { id: 'json', icon: Braces, labelKey: 'export.json.label', descriptionKey: 'export.json.description' },
 ];
 
-/**
- * Rendered by chat's ChatMessagesPane header so the open conversation can be
- * downloaded as a self-contained web page, as Markdown, or as JSON.
- */
-export default function ChatExportMenu({
+/** Runs a transcript download; shared by this menu and the composer's More menu on phones. */
+export function useTranscriptExport({
   messages,
   sessionTitle,
   provider,
@@ -47,10 +44,6 @@ export default function ChatExportMenu({
   // Building a large transcript takes long enough to notice, and the download
   // only appears at the end — without this the button looks unresponsive.
   const [busyFormat, setBusyFormat] = useState<TranscriptExportFormat | null>(null);
-
-  if (messages.length === 0) {
-    return null;
-  }
 
   const runExport = async (format: TranscriptExportFormat) => {
     setBusyFormat(format);
@@ -70,6 +63,23 @@ export default function ChatExportMenu({
     }
   };
 
+  return { canExport: messages.length > 0, busyFormat, runExport };
+}
+
+export type TranscriptExport = ReturnType<typeof useTranscriptExport>;
+
+/**
+ * Rendered by chat's ChatMessagesPane header so the open conversation can be
+ * downloaded as a self-contained web page, as Markdown, or as JSON.
+ */
+export default function ChatExportMenu(props: ChatExportMenuProps) {
+  const { t } = useTranslation('chat');
+  const { canExport, busyFormat, runExport } = useTranscriptExport(props);
+
+  if (!canExport) {
+    return null;
+  }
+
   return (
     <ActionMenu
       icon={busyFormat ? Loader2 : Download}
@@ -83,7 +93,7 @@ export default function ChatExportMenu({
           <p className="text-xs font-medium text-foreground">{t('export.heading')}</p>
         </div>
       )}
-      items={FORMATS.map((format) => ({
+      items={TRANSCRIPT_EXPORT_FORMATS.map((format) => ({
         key: format.id,
         label: t(format.labelKey),
         description: t(format.descriptionKey),

@@ -37,6 +37,8 @@ import { ScheduleMessagePopover } from '@/modules/chat/composer/ScheduleMessageP
 import { ScheduledMessageList } from '@/modules/chat/composer/ScheduledMessageList';
 import ComposerModelMenu from '@/modules/chat/composer/ComposerModelMenu';
 import ComposerPermissionMenu from '@/modules/chat/composer/ComposerPermissionMenu';
+import ComposerMoreMenu from '@/modules/chat/composer/ComposerMoreMenu';
+import type { TranscriptExport } from '@/modules/chat/transcript/ChatExportMenu';
 
 type MentionableFile = {
   name: string;
@@ -68,6 +70,10 @@ type ChatComposerProps = {
   onShowTokenUsage: () => void;
   slashCommandsCount: number;
   onToggleCommandMenu: () => void;
+  /** Offered from the More menu on phones, where the transcript's export button is hidden. */
+  transcriptExport?: TranscriptExport;
+  /** Offered from the More menu on phones, where the quick settings edge handle is hidden. */
+  onOpenQuickSettings?: () => void;
   hasInput: boolean;
   onClearInput: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement> | MouseEvent<HTMLButtonElement> | TouchEvent<HTMLButtonElement>) => void;
@@ -150,6 +156,8 @@ export default function ChatComposer({
   onShowTokenUsage,
   slashCommandsCount,
   onToggleCommandMenu,
+  transcriptExport,
+  onOpenQuickSettings,
   hasInput,
   onClearInput,
   onSubmit,
@@ -479,12 +487,15 @@ export default function ChatComposer({
               <VoiceInputButton state={voiceState} onToggle={voiceToggle} errorMsg={voiceError} />
             )}
 
-            <TokenUsageSummary usage={tokenBudget} onClick={onShowTokenUsage} />
+            {/* On phones these sit in the More menu instead. */}
+            <span className="hidden md:contents">
+              <TokenUsageSummary usage={tokenBudget} onClick={onShowTokenUsage} />
+            </span>
 
             <PromptInputButton
               tooltip={{ content: t('input.showAllCommands') }}
               onClick={onToggleCommandMenu}
-              className="relative"
+              className="relative hidden md:flex"
             >
               <MessageSquareIcon />
               {slashCommandsCount > 0 && (
@@ -509,9 +520,22 @@ export default function ChatComposer({
           </PromptInputTools>
 
           <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
-            <ScheduleMessagePopover
-              disabled={!input.trim()}
+            <span className="hidden md:contents">
+              <ScheduleMessagePopover
+                disabled={!input.trim()}
+                onSchedule={onScheduleMessage}
+              />
+            </span>
+            <ComposerMoreMenu
+              className="md:hidden"
+              tokenBudget={tokenBudget}
+              onShowTokenUsage={onShowTokenUsage}
+              slashCommandsCount={slashCommandsCount}
+              onToggleCommandMenu={onToggleCommandMenu}
+              canSchedule={Boolean(input.trim())}
               onSchedule={onScheduleMessage}
+              transcriptExport={transcriptExport}
+              onOpenQuickSettings={onOpenQuickSettings}
             />
 
             <ComposerModelMenu

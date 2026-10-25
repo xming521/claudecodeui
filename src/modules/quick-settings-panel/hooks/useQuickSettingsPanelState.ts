@@ -24,6 +24,7 @@ export type QuickSettingsPanelState = StoredQuickSettingsPanelState & {
  */
 type QuickSettingsPanelAction =
   | { type: 'close'; canPin: boolean }
+  | { type: 'open' }
   | { type: 'toggle' }
   | { type: 'selectTab'; tab: QuickSettingsTab }
   | { type: 'togglePin'; canPin: boolean }
@@ -99,6 +100,8 @@ export function quickSettingsPanelReducer(
         return state;
       }
       return { ...state, isOpen: false };
+    case 'open':
+      return state.isOpen ? state : { ...state, isOpen: true };
     case 'toggle':
       return { ...state, isOpen: !state.isOpen };
     case 'selectTab':
@@ -163,6 +166,7 @@ export function useQuickSettingsPanelState({ canPin }: UseQuickSettingsPanelStat
   }, [canPin]);
 
   const close = useCallback(() => dispatch({ type: 'close', canPin }), [canPin]);
+  const open = useCallback(() => dispatch({ type: 'open' }), []);
   const toggle = useCallback(() => dispatch({ type: 'toggle' }), []);
   const selectTab = useCallback((tab: QuickSettingsTab) => dispatch({ type: 'selectTab', tab }), []);
   const togglePin = useCallback(() => dispatch({ type: 'togglePin', canPin }), [canPin]);
@@ -174,8 +178,9 @@ export function useQuickSettingsPanelState({ canPin }: UseQuickSettingsPanelStat
     isPinned: state.pinned && canPin,
     activeTab: state.tab,
     close,
+    open,
     toggle,
     selectTab,
     togglePin,
-  }), [canPin, close, selectTab, state.isOpen, state.pinned, state.tab, toggle, togglePin]);
+  }), [canPin, close, open, selectTab, state.isOpen, state.pinned, state.tab, toggle, togglePin]);
 }
