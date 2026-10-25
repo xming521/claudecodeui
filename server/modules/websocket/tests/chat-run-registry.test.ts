@@ -63,9 +63,9 @@ test('live events are remapped to the app session id and sequenced', async () =>
 
     assert.equal(connection.frames.length, 2);
     assert.equal(connection.frames[0]?.sessionId, 'app-run-1');
-    assert.equal(connection.frames[0]?.seq, 1);
+    assert.equal(typeof connection.frames[0]?.seq, 'number');
     assert.equal(connection.frames[1]?.sessionId, 'app-run-1');
-    assert.equal(connection.frames[1]?.seq, 2);
+    assert.equal(connection.frames[1]?.seq, (connection.frames[0]?.seq as number) + 1);
   });
 });
 
@@ -220,9 +220,42 @@ test('replayEvents returns only events after the requested seq', async () => {
     run.writer.send({ kind: 'stream_delta', provider: 'claude', sessionId: 'x', content: 'b' });
     run.writer.send({ kind: 'stream_delta', provider: 'claude', sessionId: 'x', content: 'c' });
 
-    const replayed = chatRunRegistry.replayEvents('app-run-4', 1);
+    const [first] = run.events;
+    const firstSeq = first?.seq as number;
+    const replayed = chatRunRegistry.replayEvents('app-run-4', firstSeq);
     assert.deepEqual(replayed.map((event) => event.content), ['b', 'c']);
-    assert.deepEqual(replayed.map((event) => event.seq), [2, 3]);
+    assert.deepEqual(replayed.map((event) => event.seq), [firstSeq + 1, firstSeq + 2]);
+  });
+});
+
+test('a later run replays in full to a client holding the lastSeq of an earlier run', async () => {
+  await withIsolatedDatabase(() => {
+    sessionsDb.createAppSession('app-run-4b', 'claude', '/workspace/demo');
+    const start = () => chatRunRegistry.startRun({
+      appSessionId: 'app-run-4b',
+      provider: 'claude',
+      providerSessionId: null,
+      connection: new FakeConnection(),
+      userId: null,
+    });
+
+    // The first turn is long: the client has seen all of it.
+    const firstRun = start();
+    assert.ok(firstRun);
+    for (let index = 0; index < 5; index += 1) {
+      firstRun.writer.send({ kind: 'stream_delta', provider: 'claude', sessionId: 'x', content: `old-${index}` });
+    }
+    firstRun.writer.send({ kind: 'complete', provider: 'claude', sessionId: 'x', exitCode: 0 });
+    const clientLastSeq = firstRun.lastSeq;
+
+    // The next turn is shorter so far, and the client missed all of it.
+    const secondRun = start();
+    assert.ok(secondRun);
+    secondRun.writer.send({ kind: 'stream_delta', provider: 'claude', sessionId: 'x', content: 'new-0' });
+    secondRun.writer.send({ kind: 'stream_delta', provider: 'claude', sessionId: 'x', content: 'new-1' });
+
+    const replayed = chatRunRegistry.replayEvents('app-run-4b', clientLastSeq);
+    assert.deepEqual(replayed.map((event) => event.content), ['new-0', 'new-1']);
   });
 });
 

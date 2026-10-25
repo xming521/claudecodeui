@@ -21,7 +21,8 @@ type ChatRunStatus = 'running' | 'completed';
  *   chat handler (only emitted when a runtime died without completing).
  * - `lastSeq` / `events`: the per-run event log. Every live event gets a
  *   monotonically increasing `seq` and is buffered so a reconnecting client
- *   can replay exactly the events it missed via `chat.subscribe`.
+ *   can replay exactly the events it missed via `chat.subscribe`. A run's
+ *   first `seq` is above every earlier run's (see `nextRunSeqBase`).
  */
 type ChatRun = {
   appSessionId: string;
@@ -58,6 +59,23 @@ const MAX_BUFFERED_EVENTS_PER_RUN = 5000;
  * path all consult it instead of asking each provider runtime individually.
  */
 const runs = new Map<string, ChatRun>();
+
+/** Highest `seq` handed out by this process. */
+let highestIssuedSeq = 0;
+
+/**
+ * Where a new run's `seq` count starts. A client keeps one `lastSeq` per
+ * session for as long as the page lives, across turns and server restarts,
+ * and sends it back with `chat.subscribe`. If each run counted from 1, a
+ * client that had seen 500 events of an earlier turn would ask for
+ * `seq > 500` and get nothing replayed from a newer turn still below that.
+ * Starting above both every seq issued so far and the wall clock in µs
+ * (a run cannot emit 1000 events per millisecond) keeps a session's seqs
+ * growing across runs and restarts while staying a safe integer.
+ */
+function nextRunSeqBase(): number {
+  return Math.max(Date.now() * 1000, highestIssuedSeq);
+}
 
 /**
  * How long an admitted client request id is remembered. A client that never
@@ -140,6 +158,7 @@ function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): Norma
   }
 
   run.lastSeq += 1;
+  highestIssuedSeq = Math.max(highestIssuedSeq, run.lastSeq);
 
   const outbound: NormalizedMessage = {
     ...message,
@@ -241,7 +260,7 @@ export const chatRunRegistry = {
       provider: input.provider,
       providerSessionId: input.providerSessionId,
       status: 'running',
-      lastSeq: 0,
+      lastSeq: nextRunSeqBase(),
       events: [],
       writer: null as unknown as ChatSessionWriter,
       startedAt: Date.now(),

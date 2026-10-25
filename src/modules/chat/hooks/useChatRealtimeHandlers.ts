@@ -115,12 +115,16 @@ export function useChatRealtimeHandlers({
       const activeViewSessionId = activeViewSessionIdRef.current;
       const sid = (typeof msg.sessionId === 'string' && msg.sessionId) || activeViewSessionId;
 
-      // Record replay progress for every sequenced live event.
+      // Record replay progress for every sequenced live event. A session's
+      // seqs only grow, across turns too, so one at or below what this page
+      // has already seen is a second copy: two subscribes sent close together
+      // (the reconnect handler and the session effect) both get a replay.
       if (sid && typeof msg.seq === 'number') {
         const known = lastSeqRef.current.get(sid) ?? 0;
-        if (msg.seq > known) {
-          lastSeqRef.current.set(sid, msg.seq);
+        if (msg.seq <= known) {
+          return;
         }
+        lastSeqRef.current.set(sid, msg.seq);
       }
 
       switch (msg.kind) {

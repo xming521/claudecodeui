@@ -148,7 +148,7 @@ test('an API run is registered like a chat send: listed while running, streamed 
       // Provider events reach the stream as a tab would see them: app session id, sequenced, no session_created.
       const text = events[2] as NormalizedMessage;
       assert.equal(text.sessionId, running.sessionId);
-      assert.equal(text.seq, 1);
+      assert.equal(text.seq, chatRunRegistry.replayEvents(running.sessionId, 0)[0]?.seq);
 
       assert.equal(chatRunRegistry.isProcessing(running.sessionId), false, 'the terminal complete ends the run');
       assert.equal(sessionsDb.getSessionById(running.sessionId)?.provider_session_id, 'native-1', 'the native id the runtime announced is mapped onto the row');

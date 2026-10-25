@@ -10,7 +10,7 @@ import { afterEach, beforeEach, test, vi } from 'vitest';
  * provider now reports `connectionStatus`, which tells a lost connection
  * (`disconnected`) apart from the first handshake (`connecting`, which must not
  * flash a warning on every page load) and from the socket it swaps on purpose
- * when the auth token is refreshed (which must not read as lost either).
+ * when a stale page comes back (which must not read as lost either).
  */
 
 type FakeAuth = { user: { id: number } | null; token: string | null; isLoading: boolean };
@@ -154,27 +154,23 @@ test('a first attempt that fails reads as disconnected', () => {
   assert.equal(lastStatus(), 'connected');
 });
 
-test('a token refresh swaps the socket without ever reading as a lost connection', () => {
+test('a token refresh keeps the open socket, and the next socket uses the new token', () => {
   const view = renderProvider();
   act(() => socket(0).serverOpens());
 
   AUTH.current = { ...AUTH.current, token: 'token-2' };
   view.rerender(<WebSocketProvider><RecordStatus /></WebSocketProvider>);
 
-  assert.equal(FakeWebSocket.instances.length, 2, 'the refreshed token opened a new socket');
-  assert.equal(socket(0).readyState, FakeWebSocket.CLOSED, 'the old-token socket was closed');
-  assert.match(socket(1).url, /token=token-2/);
-  // The new socket is still handshaking: not live yet, but not lost either.
-  assert.equal(lastStatus(), 'connecting');
-  assert.equal(isConnected, false);
-
-  // No reconnect was scheduled for the socket closed on purpose.
-  act(() => { vi.advanceTimersByTime(3000); });
-  assert.equal(FakeWebSocket.instances.length, 2);
-
-  act(() => socket(1).serverOpens());
+  // The server checked the token when the socket opened; rotating it does not
+  // cut the stream.
+  assert.equal(FakeWebSocket.instances.length, 1);
+  assert.equal(socket(0).readyState, FakeWebSocket.OPEN);
   assert.equal(lastStatus(), 'connected');
-  assert.ok(!seen.includes('disconnected'), `statuses seen: ${seen.join(', ')}`);
+
+  act(() => socket(0).serverDrops());
+  act(() => { vi.advanceTimersByTime(500); });
+  assert.equal(FakeWebSocket.instances.length, 2);
+  assert.match(socket(1).url, /token=token-2/);
 });
 
 test('signing out while the socket is down does not carry the drop into the next sign-in', () => {
@@ -276,10 +272,58 @@ test('a socket that died in the background reconnects as soon as the page is bac
 test('coming back online replaces the socket', () => {
   renderProvider();
   act(() => socket(0).serverOpens());
+  act(() => { vi.advanceTimersByTime(60_000); });
   act(() => { window.dispatchEvent(new Event('online')); });
 
   assert.equal(FakeWebSocket.instances.length, 2);
   assert.equal(socket(0).readyState, FakeWebSocket.CLOSED);
   act(() => socket(1).serverOpens());
   assert.equal(lastStatus(), 'connected');
+});
+
+test('a late online event keeps a socket that just opened on the new network', () => {
+  renderProvider();
+  act(() => socket(0).serverOpens());
+  act(() => { vi.advanceTimersByTime(500); });
+  act(() => { window.dispatchEvent(new Event('online')); });
+
+  assert.equal(FakeWebSocket.instances.length, 1);
+  assert.equal(socket(0).readyState, FakeWebSocket.OPEN);
+});
+
+test('going offline after a socket opened makes the next online replace it', () => {
+  renderProvider();
+  act(() => socket(0).serverOpens());
+  act(() => { vi.advanceTimersByTime(500); });
+  act(() => { window.dispatchEvent(new Event('offline')); });
+  act(() => { vi.advanceTimersByTime(500); });
+  act(() => { window.dispatchEvent(new Event('online')); });
+
+  assert.equal(FakeWebSocket.instances.length, 2);
+  assert.equal(socket(0).readyState, FakeWebSocket.CLOSED);
+});
+
+test('failed handshakes are retried sooner at first, backing off to three seconds', () => {
+  renderProvider();
+  const retryAfter = (ms: number) => {
+    const count = FakeWebSocket.instances.length;
+    act(() => socket(count - 1).serverDrops());
+    act(() => { vi.advanceTimersByTime(ms - 1); });
+    assert.equal(FakeWebSocket.instances.length, count, `no retry before ${ms} ms`);
+    act(() => { vi.advanceTimersByTime(1); });
+    assert.equal(FakeWebSocket.instances.length, count + 1, `retried after ${ms} ms`);
+  };
+
+  retryAfter(500);
+  retryAfter(1000);
+  retryAfter(2000);
+  retryAfter(3000);
+  retryAfter(3000);
+
+  // An open resets the backoff.
+  const count = FakeWebSocket.instances.length;
+  act(() => socket(count - 1).serverOpens());
+  act(() => socket(count - 1).serverDrops());
+  act(() => { vi.advanceTimersByTime(500); });
+  retryAfter(500);
 });

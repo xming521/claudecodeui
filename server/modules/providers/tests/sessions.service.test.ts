@@ -307,7 +307,7 @@ test('running sessions carry their tasks on a chat run that is still going', { c
           sessionId: 'busy-session',
           provider: 'claude',
           startedAt: run.startedAt,
-          lastSeq: 0,
+          lastSeq: run.lastSeq,
           tasks,
         });
       },
@@ -327,7 +327,7 @@ test('running sessions with no background work are the chat runs alone', { concu
       { codex: { run: async () => undefined, abort: () => false } },
       async () => {
         assert.deepEqual(await sessionsService.listRunningSessions(), [{
-          sessionId: 'plain-session', provider: 'codex', startedAt: run.startedAt, lastSeq: 0,
+          sessionId: 'plain-session', provider: 'codex', startedAt: run.startedAt, lastSeq: run.lastSeq,
         }]);
       },
     ));
