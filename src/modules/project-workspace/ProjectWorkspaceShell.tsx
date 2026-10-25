@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useRef } from 'react';
 
 import ProjectEffects from '@/modules/project-workspace/controllers/ProjectEffects';
 import type { ProjectWorkspaceShellProps } from '@/shared/types';
@@ -14,15 +14,16 @@ function ProjectWorkspaceShell({
   sendMessage,
   navigate,
 }: ProjectWorkspaceShellProps) {
+  const mainAreaRef = useRef<HTMLDivElement>(null);
   return (
     <div
       className="fixed inset-0 flex bg-background"
       style={{ bottom: 'var(--keyboard-height, 0px)' }}
     >
       <ProjectEffects navigate={navigate} />
-      <ProjectSidebarRegion isMobile={isMobile} />
+      <ProjectSidebarRegion isMobile={isMobile} mainAreaRef={mainAreaRef} />
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div ref={mainAreaRef} className="flex min-w-0 flex-1 flex-col">
         <ProjectMainRegion
           isMobile={isMobile}
           ws={ws}

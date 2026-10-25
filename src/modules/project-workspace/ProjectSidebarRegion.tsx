@@ -3,11 +3,13 @@ import type {
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
+  RefObject,
   TouchEvent as ReactTouchEvent,
 } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useProjectSidebarState } from '@/modules/project-workspace/context/ProjectsStateContext';
+import { useHorizontalSwipe } from '@/modules/project-workspace/hooks/useHorizontalSwipe';
 import { Sidebar } from '@/modules/sidebar';
 import { useUiPreferences } from '@/shared/context/UiPreferencesContext';
 import {
@@ -18,10 +20,16 @@ import {
 } from '@/shared/hooks/useSidebarWidth';
 import type { ProjectWorkspaceShellProps } from '@/shared/types';
 
+type ProjectSidebarRegionProps = Pick<ProjectWorkspaceShellProps, 'isMobile'> & {
+  /** The main region; on mobile a right swipe across it opens the drawer. */
+  mainAreaRef: RefObject<HTMLElement | null>;
+};
+
 /** Rendered by ProjectWorkspaceShell to host the sidebar module, docked on desktop and as a drawer on mobile. */
 function ProjectSidebarRegion({
   isMobile,
-}: Pick<ProjectWorkspaceShellProps, 'isMobile'>) {
+  mainAreaRef,
+}: ProjectSidebarRegionProps) {
   const { t } = useTranslation('common');
   const { sidebarOpen, setSidebarOpen, sidebarSharedProps } = useProjectSidebarState();
   const { width: sidebarWidth, setWidth: setSidebarWidth, resetWidth: resetSidebarWidth } = useSidebarWidth();
@@ -33,6 +41,12 @@ function ProjectSidebarRegion({
   const resizeOriginRef = useRef<{ pointerX: number; width: number } | null>(null);
   const resizeFrameRef = useRef<number | null>(null);
   const pendingWidthRef = useRef<number>(sidebarWidth);
+
+  const drawerRef = useRef<HTMLDivElement>(null);
+  const openDrawer = useCallback(() => setSidebarOpen(true), [setSidebarOpen]);
+  const closeDrawer = useCallback(() => setSidebarOpen(false), [setSidebarOpen]);
+  useHorizontalSwipe(mainAreaRef, 'right', isMobile && !sidebarOpen, openDrawer);
+  useHorizontalSwipe(drawerRef, 'left', isMobile && sidebarOpen, closeDrawer);
 
   const handleBackdropClick = useCallback((event: ReactMouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
@@ -157,6 +171,7 @@ function ProjectSidebarRegion({
         aria-label={t('versionUpdate.ariaLabels.closeSidebar')}
       />
       <div
+        ref={drawerRef}
         className={`relative h-full w-[85vw] max-w-sm transform border-r border-border/40 bg-card transition-transform duration-150 ease-out sm:w-80 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
