@@ -139,6 +139,23 @@ function evictRunLater(run: ChatRun): void {
 }
 
 /**
+ * Stores how a turn ended, so every client can show a finished or failed turn
+ * the user has not opened yet, also after a reload or with the phone locked
+ * through the whole run.
+ */
+function recordTurnEnded(appSessionId: string, complete: NormalizedMessage): void {
+  const outcome = complete.aborted === true
+    ? 'aborted'
+    : complete.exitCode === 0 ? 'completed' : 'error';
+  try {
+    sessionsDb.recordTurnEnded(appSessionId, outcome);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('[ChatRunRegistry] Failed to record the end of a turn', { appSessionId, error: message });
+  }
+}
+
+/**
  * Decorates one outbound live event for a run and records it in the event log.
  *
  * Responsibilities:
@@ -172,6 +189,7 @@ function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): Norma
     outbound.actualSessionId = run.appSessionId;
     run.status = 'completed';
     run.completedAt = Date.now();
+    recordTurnEnded(run.appSessionId, message);
     evictRunLater(run);
   }
 

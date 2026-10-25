@@ -427,3 +427,45 @@ test('an unreadable registry never fails the running-sessions poll', { concurren
     );
   });
 });
+
+test('a running session blocked on an approval or a question is flagged as waiting', { concurrency: false }, async () => {
+  await withIsolatedDatabase(async () => {
+    sessionsDb.createAppSession('asking-session', 'claude', '/tmp/running-project');
+    sessionsDb.createAppSession('working-session', 'claude', '/tmp/running-project');
+    for (const appSessionId of ['asking-session', 'working-session']) {
+      chatRunRegistry.startRun({ appSessionId, provider: 'claude', providerSessionId: null, connection: null, userId: null });
+    }
+
+    await withClaudeCliRegistry([], async () => await withProviders(
+      {
+        claude: {
+          run: async () => undefined,
+          abort: () => false,
+          permissions: {
+            resolve: () => undefined,
+            listPending: (sessionId: string) => (sessionId === 'asking-session' ? [{ requestId: 'r1' }] : []),
+          },
+        } as unknown as IProvider['runtime'],
+      },
+      async () => {
+        const waiting = (await sessionsService.listRunningSessions())
+          .filter((entry) => entry.waitingForInput)
+          .map((entry) => entry.sessionId);
+        assert.deepEqual(waiting, ['asking-session']);
+      },
+    ));
+  });
+});
+
+test('opening a session clears its unseen turn', { concurrency: false }, async () => {
+  await withIsolatedDatabase(async () => {
+    sessionsDb.createAppSession('finished-session', 'claude', '/tmp/running-project');
+    sessionsDb.recordTurnEnded('finished-session', 'completed');
+    assert.deepEqual(sessionsService.listUnseenTurns(), [{ sessionId: 'finished-session', outcome: 'completed' }]);
+
+    await new Promise((resolve) => { setTimeout(resolve, 2); });
+    sessionsService.markSessionViewed('finished-session');
+    assert.deepEqual(sessionsService.listUnseenTurns(), []);
+    assert.throws(() => sessionsService.markSessionViewed('missing-session'), /was not found/);
+  });
+});

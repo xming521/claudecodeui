@@ -4,6 +4,8 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
+  useState,
 } from 'react';
 import type { ReactNode } from 'react';
 
@@ -20,11 +22,18 @@ type RunningSessionApiItem = {
   canInterrupt?: unknown;
   background?: unknown;
   tasks?: unknown;
+  waitingForInput?: unknown;
+};
+
+type UnseenTurnApiItem = {
+  sessionId?: unknown;
+  outcome?: unknown;
 };
 
 type RunningSessionsApiPayload = {
   data?: {
     sessions?: RunningSessionApiItem[];
+    unseenTurns?: UnseenTurnApiItem[];
   };
 };
 
@@ -35,12 +44,36 @@ type SessionProtectionActions = {
   syncProcessingSessions: SyncProcessingSessions;
   isSessionProcessing: IsSessionProcessing;
   getSessionActivity: GetSessionActivity;
+  /** Records that the user has the session in front of them, which clears its finished/failed dot everywhere. */
+  markSessionViewed: (sessionId: string) => void;
+};
+
+/**
+ * The sidebar's two "your turn" dots. Amber: the session is blocked on the
+ * user (a tool approval or a question) or its last turn failed since they last
+ * opened it. Green: its last turn finished since then and the reply is ready.
+ */
+export type SessionIndicatorSets = {
+  attentionSessionIds: ReadonlySet<string>;
+  finishedSessionIds: ReadonlySet<string>;
 };
 
 const SessionProtectionStateContext = createContext<SessionActivityMap | null>(null);
 const SessionProtectionActionsContext = createContext<SessionProtectionActions | null>(null);
 const BusySessionIdsContext = createContext<ReadonlySet<string> | null>(null);
 const BackgroundSessionIdsContext = createContext<ReadonlySet<string> | null>(null);
+const SessionIndicatorsContext = createContext<SessionIndicatorSets | null>(null);
+
+/**
+ * How long a session the user just opened keeps its dot hidden whatever the
+ * poll says. A poll sent before the "viewed" request can answer after it.
+ */
+const VIEWED_SUPPRESSION_MS = 15_000;
+
+const toIdKey = (ids: Iterable<string>): string => [...new Set(ids)].sort().join('\u0000');
+const fromIdKey = (key: string): ReadonlySet<string> => new Set(key ? key.split('\u0000') : []);
+const withoutId = (key: string, sessionId: string): string =>
+  toIdKey([...fromIdKey(key)].filter((id) => id !== sessionId));
 
 /**
  * The set of session ids whose activity passes `include`, with a stable
@@ -132,6 +165,13 @@ export function SessionProtectionProvider({ children }: { children: ReactNode })
     getSessionActivity,
   } = useSessionProtection();
 
+  // Sorted id lists joined into strings, so a poll that changes nothing does
+  // not hand the sidebar new sets.
+  const [waitingKey, setWaitingKey] = useState('');
+  const [failedKey, setFailedKey] = useState('');
+  const [finishedKey, setFinishedKey] = useState('');
+  const viewedAtRef = useRef(new Map<string, number>());
+
   const refreshRunningSessions = useCallback(async () => {
     try {
       const response = await api.runningSessions();
@@ -141,6 +181,22 @@ export function SessionProtectionProvider({ children }: { children: ReactNode })
 
       const payload = (await response.json()) as RunningSessionsApiPayload;
       const sessions = Array.isArray(payload.data?.sessions) ? payload.data.sessions : [];
+
+      const now = Date.now();
+      for (const [sessionId, viewedAt] of viewedAtRef.current) {
+        if (now - viewedAt > VIEWED_SUPPRESSION_MS) {
+          viewedAtRef.current.delete(sessionId);
+        }
+      }
+      const unseenTurns = (Array.isArray(payload.data?.unseenTurns) ? payload.data.unseenTurns : [])
+        .filter((turn): turn is { sessionId: string; outcome: string } =>
+          typeof turn?.sessionId === 'string' && typeof turn.outcome === 'string')
+        .filter((turn) => !viewedAtRef.current.has(turn.sessionId));
+      setFailedKey(toIdKey(unseenTurns.filter((turn) => turn.outcome === 'error').map((turn) => turn.sessionId)));
+      setFinishedKey(toIdKey(unseenTurns.filter((turn) => turn.outcome === 'completed').map((turn) => turn.sessionId)));
+      setWaitingKey(toIdKey(sessions
+        .filter((session) => session.waitingForInput === true && typeof session.sessionId === 'string')
+        .map((session) => session.sessionId as string)));
 
       syncProcessingSessions(
         sessions
@@ -177,6 +233,18 @@ export function SessionProtectionProvider({ children }: { children: ReactNode })
     return () => window.clearInterval(interval);
   }, [refreshRunningSessions]);
 
+  const markSessionViewed = useCallback((sessionId: string) => {
+    if (!sessionId) {
+      return;
+    }
+    viewedAtRef.current.set(sessionId, Date.now());
+    setFailedKey((key) => withoutId(key, sessionId));
+    setFinishedKey((key) => withoutId(key, sessionId));
+    // A session the server does not know yet (a new chat before its first
+    // send) answers 404, which is fine: it has no turn to clear.
+    void api.markSessionViewed(sessionId).catch(() => undefined);
+  }, []);
+
   const actions = useMemo<SessionProtectionActions>(
     () => ({
       markSessionProcessing,
@@ -185,6 +253,7 @@ export function SessionProtectionProvider({ children }: { children: ReactNode })
       syncProcessingSessions,
       isSessionProcessing,
       getSessionActivity,
+      markSessionViewed,
     }),
     [
       getSessionActivity,
@@ -192,24 +261,41 @@ export function SessionProtectionProvider({ children }: { children: ReactNode })
       markSessionBackground,
       markSessionIdle,
       markSessionProcessing,
+      markSessionViewed,
       syncProcessingSessions,
     ],
   );
 
   const busySessionIds = useSessionIdSet(processingSessions, isAnyActivity);
   const backgroundSessionIds = useSessionIdSet(processingSessions, isBackgroundOnly);
+  const indicators = useMemo<SessionIndicatorSets>(() => {
+    const attentionSessionIds = new Set([...fromIdKey(waitingKey), ...fromIdKey(failedKey)]);
+    const finishedSessionIds = new Set([...fromIdKey(finishedKey)].filter((id) => !attentionSessionIds.has(id)));
+    return { attentionSessionIds, finishedSessionIds };
+  }, [failedKey, finishedKey, waitingKey]);
 
   return (
     <SessionProtectionActionsContext.Provider value={actions}>
       <BusySessionIdsContext.Provider value={busySessionIds}>
         <BackgroundSessionIdsContext.Provider value={backgroundSessionIds}>
-          <SessionProtectionStateContext.Provider value={processingSessions}>
-            {children}
-          </SessionProtectionStateContext.Provider>
+          <SessionIndicatorsContext.Provider value={indicators}>
+            <SessionProtectionStateContext.Provider value={processingSessions}>
+              {children}
+            </SessionProtectionStateContext.Provider>
+          </SessionIndicatorsContext.Provider>
         </BackgroundSessionIdsContext.Provider>
       </BusySessionIdsContext.Provider>
     </SessionProtectionActionsContext.Provider>
   );
+}
+
+/** The sessions that show the amber or the green dot. Rows hide either on the session the user is looking at. */
+export function useSessionIndicatorSets(): SessionIndicatorSets {
+  const indicators = useContext(SessionIndicatorsContext);
+  if (!indicators) {
+    throw new Error('useSessionIndicatorSets must be used within SessionProtectionProvider');
+  }
+  return indicators;
 }
 
 /**

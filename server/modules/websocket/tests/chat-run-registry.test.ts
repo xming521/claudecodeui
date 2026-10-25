@@ -396,3 +396,31 @@ test('remembered request ids are capped, dropping the oldest first', () => {
     chatRunRegistry.clearAll();
   }
 });
+
+test('the end of a turn is recorded with how it ended', async () => {
+  await withIsolatedDatabase(() => {
+    const outcomes: Record<string, string> = {};
+    for (const [appSessionId, complete] of [
+      ['turn-ok', { exitCode: 0 }],
+      ['turn-error', { exitCode: 1 }],
+      ['turn-stopped', { exitCode: 0, aborted: true }],
+    ] as const) {
+      sessionsDb.createAppSession(appSessionId, 'claude', '/workspace/demo');
+      const run = chatRunRegistry.startRun({
+        appSessionId,
+        provider: 'claude',
+        providerSessionId: null,
+        connection: new FakeConnection(),
+        userId: null,
+      });
+      assert.ok(run);
+      run.writer.send({ kind: 'text', provider: 'claude', sessionId: appSessionId, content: 'hi' });
+      chatRunRegistry.completeRun(appSessionId, complete);
+    }
+
+    for (const row of sessionsDb.listUnseenTurns()) {
+      outcomes[row.session_id] = row.last_turn_outcome;
+    }
+    assert.deepEqual(outcomes, { 'turn-ok': 'completed', 'turn-error': 'error' });
+  });
+});

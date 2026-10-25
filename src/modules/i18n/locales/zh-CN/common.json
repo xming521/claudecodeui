@@ -104,7 +104,8 @@
     "loadRecentFailed": "最近对话加载失败",
     "showMore": "显示更多",
     "sessionRunning": "运行中",
-    "sessionNeedsAttention": "需要处理"
+    "sessionNeedsAttention": "需要你处理",
+    "sessionFinished": "已完成，等你回复"
   },
   "fileTree": {
     "loading": "正在加载文件...",

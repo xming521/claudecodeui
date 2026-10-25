@@ -106,7 +106,8 @@
     "loadRecentFailed": "Could not load recent conversations",
     "showMore": "Show more",
     "sessionRunning": "Running",
-    "sessionNeedsAttention": "Needs attention"
+    "sessionNeedsAttention": "Needs you",
+    "sessionFinished": "Finished, your turn"
   },
   "fileTree": {
     "loading": "Loading files...",

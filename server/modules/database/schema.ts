@@ -142,6 +142,12 @@ CREATE TABLE IF NOT EXISTS sessions (
     -- normally. Informational only: a fork is a fully independent provider
     -- session, and deleting the source does not affect it.
     forked_from_session_id TEXT,
+    -- When the session's last CloudCLI turn ended and how ('completed',
+    -- 'error', 'aborted'), and when the user last opened it. A turn that
+    -- ended after the last open is one the user has not seen yet.
+    last_turn_ended_at TEXT,
+    last_turn_outcome TEXT,
+    last_viewed_at TEXT,
     isArchived BOOLEAN DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,

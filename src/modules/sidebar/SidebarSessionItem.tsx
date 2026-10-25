@@ -18,7 +18,10 @@ type SidebarSessionItemProps = {
   isProcessing: boolean;
   /** The session's turn has ended but the agents, workflows or commands it launched still run. */
   hasBackgroundWork: boolean;
+  /** Blocked on the user, or its last turn failed since they last opened it. */
   needsAttention: boolean;
+  /** Its last turn finished since the user last opened it: a reply is waiting. */
+  isFinished: boolean;
   currentTime: Date;
   /** Resolved for this row, so a keystroke elsewhere does not invalidate it. */
   isEditing: boolean;
@@ -49,6 +52,7 @@ function SidebarSessionItem({
   isProcessing,
   hasBackgroundWork,
   needsAttention,
+  isFinished,
   currentTime,
   isEditing,
   renameDraft,
@@ -66,7 +70,7 @@ function SidebarSessionItem({
   t,
 }: SidebarSessionItemProps) {
   const isCompact = useCompactSidebar();
-  const sessionView = createSessionViewModel(session, currentTime, t);
+  const sessionView = createSessionViewModel(session, t);
   const isSelected = selectedSession?.id === session.id;
   const compactSessionAge = formatCompactAge(sessionView.sessionTime, currentTime);
   const [isMobileOptionsOpen, setIsMobileOptionsOpen] = useState(false);
@@ -74,12 +78,13 @@ function SidebarSessionItem({
   // Background work takes the recent-activity dot's place: the session is
   // still doing something, which says more than that it was touched lately.
   const showBackgroundIndicator = !showAttentionIndicator && hasBackgroundWork;
-  const showRecentIndicator = !showAttentionIndicator && !showBackgroundIndicator && !isProcessing && sessionView.isActive;
+  const showFinishedIndicator =
+    !showAttentionIndicator && !showBackgroundIndicator && !isProcessing && isFinished && !isSelected;
   const indicatorLabel = showAttentionIndicator
-    ? t('tooltips.attentionRequiredIndicator', { defaultValue: 'Session needs attention' })
+    ? t('tooltips.attentionRequiredIndicator', { defaultValue: 'Needs you: waiting for approval or an answer, or the last turn failed' })
     : showBackgroundIndicator
       ? t('tooltips.backgroundWorkIndicator', { defaultValue: 'Background work running' })
-      : t('tooltips.activeSessionIndicator');
+      : t('tooltips.finishedSessionIndicator', { defaultValue: 'Finished, your turn' });
   const providerLabel = PROVIDER_LABELS[session.__provider];
 
   // The desktop controls live in SessionOptions, which owns the rename panel and
@@ -149,18 +154,18 @@ function SidebarSessionItem({
 
   return (
     <div className="group relative">
-      {(showAttentionIndicator || showBackgroundIndicator || showRecentIndicator) && (
+      {(showAttentionIndicator || showBackgroundIndicator || showFinishedIndicator) && (
         <div className="absolute left-0 top-1/2 -translate-x-1 -translate-y-1/2 transform">
           <Tooltip content={indicatorLabel} position="right">
             <div
               role="status"
               aria-label={indicatorLabel}
               className={cn(
-                'h-2 w-2 animate-pulse rounded-full',
+                'h-2 w-2 rounded-full',
                 showAttentionIndicator
-                  ? 'bg-amber-500'
+                  ? 'animate-pulse bg-amber-500'
                   : showBackgroundIndicator
-                    ? 'bg-purple-500 dark:bg-purple-400'
+                    ? 'animate-pulse bg-purple-500 dark:bg-purple-400'
                     : 'bg-green-500',
               )}
             />
@@ -180,7 +185,7 @@ function SidebarSessionItem({
             isSelected ? 'bg-primary/5 border-primary/20' : '',
             !isSelected && isProcessing
               ? 'border-border/60 bg-muted/20'
-              : !isSelected && sessionView.isActive
+              : showFinishedIndicator
               ? 'border-green-500/30 bg-green-50/5 dark:bg-green-900/5'
               : 'border-border/30',
             isChecked && 'border-primary/40 bg-primary/10',
@@ -391,7 +396,7 @@ function SidebarSessionItem({
             isSelected ? 'border-primary/20 bg-primary/5' : 'border-border/30',
             !isSelected && isProcessing
               ? 'border-border/60 bg-muted/20 hover:bg-muted/25'
-              : !isSelected && sessionView.isActive
+              : showFinishedIndicator
                 ? 'border-green-500/30 bg-green-50/5 hover:bg-green-50/10 dark:bg-green-900/5 dark:hover:bg-green-900/10'
                 : 'hover:bg-accent/50',
             isChecked && 'border-primary/40 bg-primary/10',

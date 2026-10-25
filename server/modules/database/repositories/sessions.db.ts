@@ -20,6 +20,16 @@ type SessionRow = {
   updated_at: string;
 };
 
+/** How a turn ended, as the run registry saw its terminal `complete`. */
+export type SessionTurnOutcome = 'completed' | 'error' | 'aborted';
+
+type UnseenTurnRow = {
+  session_id: string;
+  last_turn_outcome: 'completed' | 'error';
+};
+
+const MAX_UNSEEN_TURNS = 200;
+
 type RecentSessionsPage = {
   sessions: SessionRow[];
   total: number;
@@ -437,6 +447,47 @@ export const sessionsDb = {
        SET effort = ?
        WHERE session_id = ?`
     ).run(effort, sessionId);
+  },
+
+  /** Records that a turn of this session just ended, and how. */
+  recordTurnEnded(sessionId: string, outcome: SessionTurnOutcome): void {
+    const db = getConnection();
+    db.prepare(
+      `UPDATE sessions
+       SET last_turn_ended_at = ?, last_turn_outcome = ?
+       WHERE session_id = ?`
+    ).run(new Date().toISOString(), outcome, sessionId);
+  },
+
+  /** Records that the user has the session open now. Returns false for an unknown id. */
+  markSessionViewed(sessionId: string): boolean {
+    const db = getConnection();
+    const result = db.prepare(
+      `UPDATE sessions
+       SET last_viewed_at = ?
+       WHERE session_id = ?`
+    ).run(new Date().toISOString(), sessionId);
+    return result.changes > 0;
+  },
+
+  /**
+   * Sessions whose last turn completed or failed after the user last opened
+   * them, newest first. Aborted turns are left out: the user stopped those.
+   * Both timestamps are ISO strings written by this process, so they compare
+   * as text.
+   */
+  listUnseenTurns(): UnseenTurnRow[] {
+    const db = getConnection();
+    return db.prepare(
+      `SELECT session_id, last_turn_outcome
+       FROM sessions
+       WHERE COALESCE(isArchived, 0) = 0
+         AND last_turn_ended_at IS NOT NULL
+         AND last_turn_outcome IN ('completed', 'error')
+         AND (last_viewed_at IS NULL OR last_turn_ended_at > last_viewed_at)
+       ORDER BY last_turn_ended_at DESC
+       LIMIT ?`
+    ).all(MAX_UNSEEN_TURNS) as UnseenTurnRow[];
   },
 
   updateSessionCustomName(sessionId: string, customName: string): void {

@@ -166,3 +166,36 @@ test('recent sessions are globally ordered, paginated, and limited to visible co
     );
   });
 });
+
+const nextMillisecond = () => new Promise((resolve) => { setTimeout(resolve, 2); });
+
+test('a turn that ended after the last open stays unseen until the session is opened again', async () => {
+  await withIsolatedDatabase(async () => {
+    for (const id of ['done', 'failed', 'stopped', 'never-ran']) {
+      sessionsDb.createSession(id, 'claude', '/workspace/demo-project', id);
+    }
+    sessionsDb.recordTurnEnded('done', 'completed');
+    sessionsDb.recordTurnEnded('failed', 'error');
+    sessionsDb.recordTurnEnded('stopped', 'aborted');
+
+    const unseen = () => sessionsDb.listUnseenTurns()
+      .map((row) => `${row.session_id}:${row.last_turn_outcome}`)
+      .sort();
+    // The user stopped `stopped` themselves, and `never-ran` has no turn on record.
+    assert.deepEqual(unseen(), ['done:completed', 'failed:error']);
+
+    await nextMillisecond();
+    assert.equal(sessionsDb.markSessionViewed('done'), true);
+    assert.deepEqual(unseen(), ['failed:error']);
+
+    // The next turn ends after that open.
+    await nextMillisecond();
+    sessionsDb.recordTurnEnded('done', 'completed');
+    assert.deepEqual(unseen(), ['done:completed', 'failed:error']);
+
+    sessionsDb.updateSessionIsArchived('failed', true);
+    assert.deepEqual(unseen(), ['done:completed']);
+
+    assert.equal(sessionsDb.markSessionViewed('missing'), false);
+  });
+});

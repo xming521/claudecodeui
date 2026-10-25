@@ -470,6 +470,17 @@ const addProviderModelEffortColumns = (db: Database): void => {
   addColumnToTableIfNotExists(db, 'provider_models', columnNames, 'effort_default', 'TEXT DEFAULT NULL');
 };
 
+/**
+ * Adds the columns behind the sidebar's "finished, not yet seen" dot. Existing
+ * rows stay NULL: no turn is on record for them, so none shows a dot.
+ */
+const addSessionTurnSeenColumns = (db: Database): void => {
+  const columnNames = getTableInfo(db, 'sessions').map((column) => column.name);
+  addColumnToTableIfNotExists(db, 'sessions', columnNames, 'last_turn_ended_at', 'TEXT');
+  addColumnToTableIfNotExists(db, 'sessions', columnNames, 'last_turn_outcome', 'TEXT');
+  addColumnToTableIfNotExists(db, 'sessions', columnNames, 'last_viewed_at', 'TEXT');
+};
+
 const ensureProjectsForSessionPaths = (db: Database): void => {
   if (!tableExists(db, 'sessions')) {
     return;
@@ -533,6 +544,7 @@ export const runMigrations = (db: Database) => {
     addSessionModelColumn(db);
     addSessionEffortColumn(db);
     addForkedFromSessionIdColumn(db);
+    addSessionTurnSeenColumns(db);
     ensureProjectsForSessionPaths(db);
     db.exec(SCHEDULED_MESSAGES_TABLE_SCHEMA_SQL);
 

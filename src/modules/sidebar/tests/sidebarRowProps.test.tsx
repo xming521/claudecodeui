@@ -56,7 +56,7 @@ const NOW = new Date('2026-08-21T10:00:00.000Z');
 
 // Held outside listProps because the caller owns their stability in production:
 // activeSessions is useBusySessionIdSet(), which only changes identity when
-// membership changes, and attentionSessionIds is passed into Sidebar from above.
+// membership changes, and so do the indicator sets from useSessionIndicatorSets().
 // Rebuilding them per render here would test the harness, not the component.
 const NO_SESSION_IDS: ReadonlySet<string> = new Set<string>();
 
@@ -83,6 +83,7 @@ const listProps = (
   activeSessions: NO_SESSION_IDS,
   backgroundSessionIds: NO_SESSION_IDS,
   attentionSessionIds: NO_SESSION_IDS,
+  finishedSessionIds: NO_SESSION_IDS,
   isProjectStarred: () => false,
   onRenameDraftChange: noop,
   onToggleProject: noop,
@@ -238,6 +239,7 @@ const sessionsProps = (
   activeSessions: NO_SESSION_IDS,
   backgroundSessionIds: NO_SESSION_IDS,
   attentionSessionIds: NO_SESSION_IDS,
+  finishedSessionIds: NO_SESSION_IDS,
   currentTime: NOW,
   sessionRenameId,
   sessionRenameDraft,

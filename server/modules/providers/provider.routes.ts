@@ -879,7 +879,10 @@ router.get(
   '/sessions/running',
   asyncHandler(async (_req: Request, res: Response) => {
     const sessions = await sessionsService.listRunningSessions();
-    res.json(createApiSuccessResponse({ sessions }));
+    // Rides on the activity poll, so the sidebar's "finished" and "failed"
+    // dots need no request of their own.
+    const unseenTurns = sessionsService.listUnseenTurns();
+    res.json(createApiSuccessResponse({ sessions, unseenTurns }));
   }),
 );
 
@@ -954,6 +957,15 @@ router.delete(
   asyncHandler(async (req: Request, res: Response) => {
     const sessionId = parseSessionId(req.params.sessionId);
     res.json(createApiSuccessResponse(sessionsService.discardUnsentSession(sessionId)));
+  }),
+);
+
+router.post(
+  '/sessions/:sessionId/viewed',
+  asyncHandler(async (req: Request, res: Response) => {
+    const sessionId = parseSessionId(req.params.sessionId);
+    sessionsService.markSessionViewed(sessionId);
+    res.json(createApiSuccessResponse({ sessionId }));
   }),
 );
 

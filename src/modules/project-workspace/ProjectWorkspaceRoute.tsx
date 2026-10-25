@@ -30,7 +30,7 @@ function ProjectWorkspaceRouteContent() {
   const { sessionId } = useParams<{ sessionId?: string }>();
   const { isMobile } = useDeviceSettings({ trackPWA: false });
   const { ws, sendMessage, subscribe } = useWebSocket();
-  const { isSessionProcessing } = useSessionProtectionActions();
+  const { isSessionProcessing, markSessionViewed } = useSessionProtectionActions();
 
   useVisualViewportKeyboardOffset();
 
@@ -41,6 +41,7 @@ function ProjectWorkspaceRouteContent() {
       subscribe={subscribe}
       isMobile={isMobile}
       isSessionProcessing={isSessionProcessing}
+      markSessionViewed={markSessionViewed}
     >
       <ProjectWorkspaceShell
         isMobile={isMobile}

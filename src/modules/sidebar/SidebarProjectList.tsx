@@ -28,6 +28,7 @@ export default function SidebarProjectList({
   activeSessions,
   backgroundSessionIds,
   attentionSessionIds,
+  finishedSessionIds,
   isProjectStarred,
   onRenameDraftChange,
   onToggleProject,
@@ -126,6 +127,7 @@ export default function SidebarProjectList({
                 activeSessions={activeSessions}
                 backgroundSessionIds={backgroundSessionIds}
                 attentionSessionIds={attentionSessionIds}
+                finishedSessionIds={finishedSessionIds}
                 onNewSession={onNewSession}
                 onStartEditingSession={onStartEditingSession}
                 onCancelEditingSession={onCancelEditingSession}

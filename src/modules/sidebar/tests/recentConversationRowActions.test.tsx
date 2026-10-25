@@ -47,6 +47,7 @@ const makeActions = (overrides: Partial<SessionRowActions> = {}): SessionRowActi
   activeSessions: new Set<string>(),
   backgroundSessionIds: new Set<string>(),
   attentionSessionIds: new Set<string>(),
+  finishedSessionIds: new Set<string>(),
   onRenameDraftChange: noop,
   onStartEditingSession: noop,
   onCancelEditingSession: noop,
@@ -158,4 +159,17 @@ test('a session needing attention gets the amber dot', () => {
   assert.equal(dots.length, 1);
   const rows = container.querySelectorAll('[data-testid="recent-conversation-row"]');
   assert.equal(rows.length, 2);
+});
+
+test('a finished turn the user has not opened gets the green dot, the open one does not', () => {
+  const { container } = renderList(
+    [conversation('s1'), conversation('s2'), conversation('s3')],
+    makeActions({ finishedSessionIds: new Set(['s2', 's3']), attentionSessionIds: new Set(['s3']) }),
+  );
+
+  // s3 is also failed/blocked, and amber wins.
+  const green = container.querySelectorAll('[role="status"].bg-green-500');
+  assert.equal(green.length, 1);
+  assert.equal(green[0].getAttribute('aria-label'), 'tooltips.finishedSessionIndicator');
+  assert.equal(container.querySelectorAll('[role="status"].bg-amber-500').length, 1);
 });

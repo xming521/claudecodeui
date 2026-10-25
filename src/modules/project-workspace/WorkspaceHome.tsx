@@ -5,7 +5,11 @@ import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 
 import { api } from '@/shared/api';
-import { useBackgroundSessionIdSet, useBusySessionIdSet } from '@/shared/context/SessionProtectionContext';
+import {
+  useBackgroundSessionIdSet,
+  useBusySessionIdSet,
+  useSessionIndicatorSets,
+} from '@/shared/context/SessionProtectionContext';
 import type { Project, RecentConversationListItem } from '@/shared/types';
 import { Button, LLMProviderLogo } from '@/shared/ui';
 import { cn } from '@/shared/utils';
@@ -79,9 +83,10 @@ export default function WorkspaceHome({ isMobile, onMenuClick }: WorkspaceHomePr
   // The sidebar's bundle already carries the project list and the same select
   // and new-session handlers its own Conversations tab uses.
   const { sidebarSharedProps } = useProjectSidebarState();
-  const { projects, attentionSessionIds, onProjectSelect, onSessionSelect, onNewSession } = sidebarSharedProps;
+  const { projects, onProjectSelect, onSessionSelect, onNewSession } = sidebarSharedProps;
   const busySessionIds = useBusySessionIdSet();
   const backgroundSessionIds = useBackgroundSessionIdSet();
+  const { attentionSessionIds, finishedSessionIds } = useSessionIndicatorSets();
 
   const [conversations, setConversations] = useState<RecentConversationListItem[]>([]);
   const [hasMore, setHasMore] = useState(false);
@@ -254,6 +259,7 @@ export default function WorkspaceHome({ isMobile, onMenuClick }: WorkspaceHomePr
                 const hasBackgroundWork = backgroundSessionIds.has(conversation.sessionId);
                 const isProcessing = busySessionIds.has(conversation.sessionId) && !hasBackgroundWork;
                 const needsAttention = attentionSessionIds.has(conversation.sessionId);
+                const isFinished = finishedSessionIds.has(conversation.sessionId);
 
                 const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
                   if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
@@ -290,13 +296,21 @@ export default function WorkspaceHome({ isMobile, onMenuClick }: WorkspaceHomePr
                         className="h-4 w-4 flex-shrink-0 animate-spin text-muted-foreground"
                         aria-label={t('mainContent.sessionRunning')}
                       />
-                    ) : (hasBackgroundWork || needsAttention) && (
+                    ) : (hasBackgroundWork || needsAttention || isFinished) && (
                       <span
                         role="status"
-                        aria-label={hasBackgroundWork ? t('mainContent.sessionRunning') : t('mainContent.sessionNeedsAttention')}
+                        aria-label={
+                          hasBackgroundWork
+                            ? t('mainContent.sessionRunning')
+                            : needsAttention
+                              ? t('mainContent.sessionNeedsAttention')
+                              : t('mainContent.sessionFinished', { defaultValue: 'Finished, your turn' })
+                        }
                         className={cn(
-                          'h-2 w-2 flex-shrink-0 animate-pulse rounded-full',
-                          hasBackgroundWork ? 'bg-purple-500 dark:bg-purple-400' : 'bg-amber-500',
+                          'h-2 w-2 flex-shrink-0 rounded-full',
+                          hasBackgroundWork
+                            ? 'animate-pulse bg-purple-500 dark:bg-purple-400'
+                            : needsAttention ? 'animate-pulse bg-amber-500' : 'bg-green-500',
                         )}
                       />
                     )}

@@ -41,6 +41,14 @@ type RunningSessionEntry = {
   canInterrupt?: false;
   statusText?: string;
   tasks?: BackgroundTaskSummary[];
+  /** Set while the turn is blocked on the user: a tool approval or a question. */
+  waitingForInput?: true;
+};
+
+/** A session whose last turn ended after the user last opened it. */
+type UnseenTurnEntry = {
+  sessionId: string;
+  outcome: 'completed' | 'error';
 };
 
 type CreateAppSessionResult = {
@@ -208,7 +216,36 @@ export const sessionsService = {
       runningById.set(session.session_id, entries[entries.length - 1]);
     }
 
+    for (const entry of entries) {
+      const isWaiting = providerRegistry.listProviders().some(
+        (provider) => (provider.runtime.permissions?.listPending(entry.sessionId) ?? []).length > 0,
+      );
+      if (isWaiting) {
+        entry.waitingForInput = true;
+      }
+    }
+
     return entries;
+  },
+
+  /** Sessions with a finished or failed turn the user has not opened since. */
+  listUnseenTurns(): UnseenTurnEntry[] {
+    return sessionsDb.listUnseenTurns().map((row) => ({
+      sessionId: row.session_id,
+      outcome: row.last_turn_outcome,
+    }));
+  },
+
+  /** Records that the user opened the session, which clears its unseen turn. */
+  markSessionViewed(sessionId: string): void {
+    const session = sessionsDb.getSessionById(sessionId) ?? sessionsDb.getSessionByProviderSessionId(sessionId);
+    if (!session) {
+      throw new AppError(`Session "${sessionId}" was not found.`, {
+        code: 'SESSION_NOT_FOUND',
+        statusCode: 404,
+      });
+    }
+    sessionsDb.markSessionViewed(session.session_id);
   },
 
   /**

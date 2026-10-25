@@ -1307,7 +1307,9 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
         const stillOutstanding = backgroundWork.hasOutstanding(sessionKey());
         if (!turnCompleteSent && !abortPending) {
           turnCompleteSent = true;
-          ws.send(createCompleteMessage({ provider: 'claude', sessionId: capturedSessionId || sessionId || null, exitCode: 0 }));
+          // An API error or a usage limit ends the turn with an error result,
+          // which the sidebar shows differently from a finished reply.
+          ws.send(createCompleteMessage({ provider: 'claude', sessionId: capturedSessionId || sessionId || null, exitCode: message.is_error ? 1 : 0 }));
           notifyRunStopped({
             userId: ws?.userId || null,
             provider: 'claude',

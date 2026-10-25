@@ -24,6 +24,7 @@ const backgroundSessionIds = new Set<string>();
 vi.mock('@/shared/context/SessionProtectionContext', () => ({
   useBusySessionIdSet: () => busySessionIds,
   useBackgroundSessionIdSet: () => backgroundSessionIds,
+  useSessionIndicatorSets: () => ({ attentionSessionIds: new Set<string>(), finishedSessionIds: new Set<string>() }),
 }));
 
 const onProjectSelect = vi.fn<(project: Project) => void>();
@@ -34,7 +35,6 @@ vi.mock('@/modules/project-workspace/context/ProjectsStateContext', () => ({
   useProjectSidebarState: () => ({
     sidebarSharedProps: {
       projects,
-      attentionSessionIds: new Set<string>(),
       onProjectSelect,
       onSessionSelect,
       onNewSession,

@@ -278,6 +278,9 @@ export const api = {
   sessionDetails: (sessionId: string) =>
     get(`/api/providers/sessions/${encodeURIComponent(sessionId)}`),
   runningSessions: () => get('/api/providers/sessions/running'),
+  // Clears the session's "finished"/"failed" dot on every device.
+  markSessionViewed: (sessionId: string) =>
+    post(`/api/providers/sessions/${encodeURIComponent(sessionId)}/viewed`),
   recentConversations: ({ limit = 40, offset = 0 }: { limit?: number; offset?: number } = {}) =>
     get(`/api/providers/sessions/recent${query({ limit, offset })}`),
   providerSessionId: (sessionId: string) =>
