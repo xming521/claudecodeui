@@ -488,10 +488,11 @@ export type ToolResult = {
   [key: string]: unknown;
 };
 
-/** One selectable answer for a Question, with the label shown to the user and an optional explanatory description. */
+/** One selectable answer for a Question, with the label shown to the user, an optional explanatory description and, on single-select questions, optional markdown the model wants compared side by side (a mockup, a code variant). */
 type QuestionOption = {
   label: string;
   description?: string;
+  preview?: string;
 };
 
 // ---------------------------

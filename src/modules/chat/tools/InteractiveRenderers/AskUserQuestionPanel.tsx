@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { MarkdownContent } from '@/modules/chat/tools/ContentRenderers/MarkdownContent';
 import type { PermissionPanelProps,Question } from '@/shared/types';
 
 /** Stable fallback so the memoized handlers below are not invalidated on every
@@ -151,6 +152,11 @@ export const AskUserQuestionPanel: React.FC<PermissionPanelProps> = ({
   const isLast = currentStep === total - 1;
   const isFirst = currentStep === 0;
   const hasCurrentSelection = selected.size > 0 || (isOtherOn && (otherTexts.get(currentStep) || '').trim().length > 0);
+  // Previews come only on single-select questions. As in the terminal, the box
+  // follows the option in play: the chosen one, or the first before any choice.
+  const previewOption = multi || isOtherOn
+    ? undefined
+    : q.options.find((opt) => selected.has(opt.label)) ?? q.options[0];
 
   return (
     <div
@@ -340,6 +346,21 @@ export const AskUserQuestionPanel: React.FC<PermissionPanelProps> = ({
             )}
           </div>
         </div>
+
+        {/* Preview of the option in play, rendered as markdown in a monospace box */}
+        {previewOption?.preview && (
+          <div className="px-4 pb-2">
+            <div className="mb-1 truncate text-[10px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
+              {previewOption.label}
+            </div>
+            <div className="scrollbar-thin max-h-[40vh] overflow-auto rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-700/60 dark:bg-gray-900/40">
+              <MarkdownContent
+                content={previewOption.preview}
+                className="prose prose-sm max-w-none font-mono text-[12px] leading-snug dark:prose-invert [&_p]:whitespace-pre-wrap"
+              />
+            </div>
+          </div>
+        )}
 
         {/* Footer — compact */}
         <div className="flex items-center justify-between gap-2 border-t border-gray-100 bg-gray-50/50 px-4 py-2 dark:border-gray-700/50 dark:bg-gray-800/50">
