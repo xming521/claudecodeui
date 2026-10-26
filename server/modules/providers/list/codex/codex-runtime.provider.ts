@@ -21,6 +21,7 @@ import {
   createCompleteMessage,
   createNormalizedMessage,
 } from '@/shared/index.js';
+import { resolveCodexCli } from '@/modules/providers/list/codex/codex-cli.js';
 import { markCodexThreadInteractive } from '@/modules/providers/list/codex/codex-thread-source.js';
 import { notifyRunFailed, notifyRunStopped } from '@/modules/notifications/index.js';
 import type { AnyRecord, ProviderRuntimeContext, ProviderRuntimeWriter } from '@/shared/index.js';
@@ -309,7 +310,10 @@ async function queryCodex(
   const sessionKey = () => sessionId || capturedSessionId || null;
 
   try {
-    codex = new Codex();
+    // Same CLI as the model list: a model newer than the bundled CLI only
+    // runs with its real metadata on a CLI that lists it.
+    const { executable } = await resolveCodexCli();
+    codex = new Codex(executable ? { codexPathOverride: executable } : {});
 
     const threadOptions: ThreadOptions = {
       workingDirectory,

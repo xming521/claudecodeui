@@ -1,8 +1,8 @@
 import { spawn } from 'node:child_process';
 import { stat } from 'node:fs/promises';
-import { createRequire } from 'node:module';
 import readline from 'node:readline';
 
+import { codexCommand, resolveCodexCli } from '@/modules/providers/list/codex/codex-cli.js';
 import { AppError } from '@/shared/utils.js';
 
 /**
@@ -42,24 +42,45 @@ export type CodexThreadFork = {
   path: string;
 };
 
-/**
- * Resolves the `codex` launcher shipped in node_modules.
- *
- * Deliberately not the `codex` on PATH: a machine can have a second, older
- * install, and the protocol this speaks is only guaranteed against the
- * version this package depends on.
- */
-function resolveCodexLauncher(): string {
-  const require_ = createRequire(import.meta.url);
-  try {
-    return require_.resolve('@openai/codex/bin/codex.js');
-  } catch {
-    throw new AppError('The Codex CLI package is not installed, so Codex conversations cannot be branched.', {
-      code: 'CODEX_APP_SERVER_UNAVAILABLE',
-      statusCode: 501,
-    });
+/** One row of `model/list`, the list the Codex CLI's own model picker shows. */
+export type CodexModel = {
+  model: string;
+  displayName: string;
+  description: string;
+  isDefault: boolean;
+  defaultReasoningEffort: string | null;
+  supportedReasoningEfforts: { reasoningEffort: string; description?: string }[];
+};
+
+/** `model/list` pages; a server that keeps returning cursors stops here. */
+const MAX_MODEL_LIST_PAGES = 20;
+
+const readString = (value: unknown): string => (typeof value === 'string' ? value : '');
+
+const toCodexModel = (raw: unknown): CodexModel | null => {
+  if (!raw || typeof raw !== 'object') {
+    return null;
   }
-}
+  const row = raw as Record<string, unknown>;
+  const model = readString(row.model) || readString(row.id);
+  if (!model) {
+    return null;
+  }
+  const efforts = Array.isArray(row.supportedReasoningEfforts) ? row.supportedReasoningEfforts : [];
+  return {
+    model,
+    displayName: readString(row.displayName) || model,
+    description: readString(row.description),
+    isDefault: row.isDefault === true,
+    defaultReasoningEffort: readString(row.defaultReasoningEffort) || null,
+    supportedReasoningEfforts: efforts.flatMap((effort) => {
+      const record = effort && typeof effort === 'object' ? effort as Record<string, unknown> : {};
+      const reasoningEffort = readString(record.reasoningEffort);
+      const description = readString(record.description);
+      return reasoningEffort ? [{ reasoningEffort, ...(description ? { description } : {}) }] : [];
+    }),
+  };
+};
 
 /**
  * Runs one exchange against a freshly spawned `codex app-server`.
@@ -73,8 +94,9 @@ function resolveCodexLauncher(): string {
 async function withAppServer<T>(
   run: (call: (method: string, params: unknown) => Promise<unknown>) => Promise<T>,
 ): Promise<T> {
-  const launcher = resolveCodexLauncher();
-  const child = spawn(process.execPath, [launcher, 'app-server'], {
+  // The CLI that runs the turns, so forks and the model list match it.
+  const { command, args } = codexCommand(await resolveCodexCli(), ['app-server']);
+  const child = spawn(command, args, {
     env: process.env,
     stdio: ['pipe', 'pipe', 'pipe'],
   });
@@ -238,6 +260,30 @@ export const codexAppServer = {
       }
 
       return { threadId, path };
+    });
+  },
+
+  /**
+   * The models the CLI offers this account, in the CLI's order, without the
+   * ones it hides from its own picker. The CLI refreshes the catalog from
+   * OpenAI when its cache is stale, so this is the same list the terminal and
+   * the Codex app show.
+   */
+  async listModels(): Promise<CodexModel[]> {
+    return withAppServer(async (call) => {
+      const models: CodexModel[] = [];
+      let cursor: string | null = null;
+      for (let page = 0; page < MAX_MODEL_LIST_PAGES; page += 1) {
+        const result = await call('model/list', cursor ? { cursor } : {}) as
+          { data?: unknown; nextCursor?: unknown } | undefined;
+        const rows = Array.isArray(result?.data) ? result.data : [];
+        models.push(...rows.flatMap((row) => toCodexModel(row) ?? []));
+        cursor = readString(result?.nextCursor) || null;
+        if (!cursor) {
+          break;
+        }
+      }
+      return models;
     });
   },
 };
